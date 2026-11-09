@@ -58,6 +58,8 @@ class SettingsStore {
       whisperCpuThreads: config.get('whisper.cpuThreads'),
       whisperBeamSize: config.get('whisper.beamSize'),
       whisperWorkerCount: config.get('whisper.workerCount'),
+      voiceLabels: config.get('whisper.voiceLabels'),
+      voiceMatchThreshold: config.get('whisper.voiceMatchThreshold'),
       whisperIdleUnloadMs: config.get('whisper.idleUnloadMs'),
 
       liveTranscription: config.get('whisper.liveEnabled'),

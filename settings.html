@@ -262,6 +262,28 @@
           <label for="echoSimilarity">Echo match threshold (<span id="echoValue">0.8</span>)</label>
           <input type="range" id="echoSimilarity" min="0.5" max="1" step="0.05" />
         </div>
+
+        <details class="section" data-key="voice">
+          <summary>Speaker labels (beta): tell my voice from others</summary>
+          <div class="check" style="margin-top:8px;">
+            <input type="checkbox" id="voiceLabels" />
+            <label for="voiceLabels">Label speakers on the microphone: "You" and "Other 1", "Other 2"…</label>
+          </div>
+          <div class="hint" style="margin:-4px 0 8px 0;">Record a short sample of your voice once. During a
+            meeting each microphone line is compared with it: a match is you, anyone else gets their own
+            number. Nothing is removed from the audio. Everything runs on this PC; only a numeric
+            voiceprint is saved, never your recording.</div>
+          <div class="row" style="flex-wrap:wrap;">
+            <button class="action primary" id="voiceSetup">Set up (downloads ~30 MB)</button>
+            <button class="action" id="voiceEnroll">Record my voice (25 s)</button>
+            <button class="action danger" id="voiceDelete">Delete my voice</button>
+          </div>
+          <div class="status-line" id="voiceStatus">Checking…</div>
+          <div class="field">
+            <label for="voiceMatchThreshold" class="hint">Match strictness (higher = fewer lines counted as you)</label>
+            <input type="number" id="voiceMatchThreshold" min="0.2" max="0.9" step="0.05" />
+          </div>
+        </details>
       </section>
 
       <!-- Transcription -->

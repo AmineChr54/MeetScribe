@@ -11,6 +11,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Setting to turn the live transcript off: the audio is still archived and the final pass writes the transcript.
 - Tunisian large-v3 (`medyas/FarukSTT`), converted to CTranslate2 on download; German tiny and small.en live models.
 - Downloaded models are grouped by purpose; Settings sections collapse and remember their state.
+- Optional speaker labels on the microphone (Settings → Audio, beta): record a short voice sample once, then lines are labelled "You" or "Other 1", "Other 2"… using local speaker embeddings (sherpa-onnx, ~0.03x realtime on one core). Off by default; only a numeric voiceprint is stored, with a Delete button.
 
 ### Fixed
 

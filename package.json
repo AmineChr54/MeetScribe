@@ -79,6 +79,7 @@
       "scripts/whisper_offline.py",
       "scripts/transcode_flac.py",
       "scripts/convert_ct2.py",
+      "scripts/voice_worker.py",
       "scripts/setup-whisper.js"
     ],
     "win": {

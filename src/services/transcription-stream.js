@@ -93,9 +93,12 @@ class TranscriptionStream extends EventEmitter {
    * @param {object}   options.vad         VAD tunables (see core/config.js)
    * @param {object}   options.transcriber object with transcribe(wavPath, opts)
    */
-  constructor({ id, label, vad, transcriber, language }) {
+  constructor({ id, label, vad, transcriber, language, labeler = null }) {
     super();
     this.id = id;
+    // Optional async (wavPath, durationMs) => label|null, run beside Whisper.
+    // Null (or a failure) keeps the stream's own label.
+    this.labeler = labeler;
     this.label = label;
     this.vad = vad;
     this.transcriber = transcriber;
@@ -345,7 +348,13 @@ class TranscriptionStream extends EventEmitter {
     this.pendingStarts.add(startedAt);
 
     try {
-      const result = await this.transcriber.transcribe(wavPath, { streamId: this.id, audioMs: durationMs });
+      const labeling = this.labeler
+        ? Promise.resolve(this.labeler(wavPath, durationMs)).catch(() => null)
+        : Promise.resolve(null);
+      const [result, speakerLabel] = await Promise.all([
+        this.transcriber.transcribe(wavPath, { streamId: this.id, audioMs: durationMs }),
+        labeling
+      ]);
       const raw = result && result.text ? String(result.text) : '';
       const text = this._sanitize(raw);
 
@@ -356,7 +365,7 @@ class TranscriptionStream extends EventEmitter {
 
       this.emit('utterance', {
         streamId: this.id,
-        label: this.label,
+        label: speakerLabel || this.label,
         text,
         startedAt,
         durationMs,
