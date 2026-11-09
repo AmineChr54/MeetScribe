@@ -361,7 +361,7 @@ class ApplicationController {
   async startRecording() {
     if (transcriptionService.isRecording) return meetingService.getStatus();
 
-    if (!transcriptionService.isAvailable()) {
+    if (transcriptionService.isLiveEnabled() && !transcriptionService.isAvailable()) {
       const message =
         'Whisper is not set up yet. Open Settings (Ctrl+,) → Transcription → "Install / Repair Whisper".';
       windowManager.broadcastToAllWindows("transcription-error", { message });
@@ -382,7 +382,8 @@ class ApplicationController {
     // Start archiving before capture, so the recording covers the meeting from
     // its first chunk. A failure here must not stop the meeting — a live
     // transcript with no archive still beats no transcript at all.
-    if (settingsStore.get("archiveAudio")) {
+    // With the live transcript off the archive is the only record, so it is kept regardless.
+    if (settingsStore.get("archiveAudio") || !transcriptionService.isLiveEnabled()) {
       try {
         audioArchive.start(status.folder, {
           system: settingsStore.get("labelSystem") || "Them",

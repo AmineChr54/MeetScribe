@@ -35,6 +35,7 @@ const FIELDS = {
 
   glossary: 'text',
   archiveAudio: 'check',
+  liveTranscription: 'check',
   archiveFormat: 'text',
   offlinePassEnabled: 'check',
   offlineModel: 'text',

@@ -120,6 +120,9 @@ class ConfigManager {
         // pause, so segments align with utterance boundaries instead of being
         // cut on a blind timer mid-word.
         vadEnabled: true,
+        // Live transcript on/off. Off still records and archives the audio, so
+        // the final pass can write the whole transcript afterwards.
+        liveEnabled: true,
         // Trailing silence (ms) that ends an utterance and triggers a flush.
         silenceHangoverMs: 700,
         // Minimum accumulated speech (ms) before a pause counts as an utterance

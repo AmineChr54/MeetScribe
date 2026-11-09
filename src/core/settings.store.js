@@ -60,6 +60,7 @@ class SettingsStore {
       whisperWorkerCount: config.get('whisper.workerCount'),
       whisperIdleUnloadMs: config.get('whisper.idleUnloadMs'),
 
+      liveTranscription: config.get('whisper.liveEnabled'),
       vadEnabled: config.get('whisper.vadEnabled'),
       silenceHangoverMs: config.get('whisper.silenceHangoverMs'),
       minUtteranceMs: config.get('whisper.minUtteranceMs'),

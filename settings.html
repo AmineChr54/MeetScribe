@@ -227,6 +227,13 @@
 
       <!-- Transcription -->
       <section class="page" id="page-whisper">
+        <div class="check">
+          <input type="checkbox" id="liveTranscription" />
+          <label for="liveTranscription">Live transcript while recording</label>
+        </div>
+        <div class="hint" style="margin:-4px 0 12px 0;">Turn off to only record: the audio is kept and the
+          final pass writes the transcript afterwards. Saves CPU and needs no live model.</div>
+
         <div class="field">
           <label for="whisperModel">Model</label>
           <select id="whisperModel">

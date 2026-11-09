@@ -116,9 +116,23 @@ class TranscriptionService extends EventEmitter {
     };
   }
 
+  /** False when the user runs on the final pass alone. */
+  isLiveEnabled() {
+    return settingsStore.get('liveTranscription') !== false;
+  }
+
   start() {
     if (this.isRecording) return this.getStatus();
     this.configure();
+
+    // With live off nothing here needs Whisper: the audio is only archived.
+    if (!this.isLiveEnabled()) {
+      this.recentSystemLines = [];
+      this.deferredStarts.clear();
+      this.isRecording = true;
+      this.emit('status', 'Recording · live transcript off');
+      return this.getStatus();
+    }
 
     if (!this.isAvailable()) {
       const message = 'Whisper is not set up. Open Settings → Transcription → Install / Repair Whisper.';
@@ -174,6 +188,7 @@ class TranscriptionService extends EventEmitter {
   ingest(streamId, buffer) {
     if (!this.isRecording) return;
     audioArchive.write(streamId, buffer);
+    if (!this.isLiveEnabled()) return;
     const stream = this.streams.get(streamId);
     if (stream) stream.ingest(buffer);
   }
@@ -181,7 +196,9 @@ class TranscriptionService extends EventEmitter {
   getStatus() {
     return {
       recording: this.isRecording,
-      available: this.isAvailable(),
+      // "Available" is about the live transcript; with it off there is nothing to warn about.
+      available: this.isAvailable() || !this.isLiveEnabled(),
+      liveEnabled: this.isLiveEnabled(),
       ...whisperPool.getStatus()
     };
   }
