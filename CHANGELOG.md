@@ -7,6 +7,14 @@ All notable changes to this project are documented here. Format based on [Keep a
 ### Added
 
 - Unit tests for the hallucination filter, transcript reordering and echo suppression (`npm test`, run in CI).
+- Profiles in Settings (English, German, German · Work, Tunisian): one click preselects live/final models, language, transcript visibility and a meeting folder name prefix. Edits are remembered per profile.
+- Setting to turn the live transcript off: the audio is still archived and the final pass writes the transcript.
+- Tunisian large-v3 (`medyas/FarukSTT`), converted to CTranslate2 on download; German tiny and small.en live models.
+- Downloaded models are grouped by purpose; Settings sections collapse and remember their state.
+
+### Fixed
+
+- Settings opens under the banner instead of covering it, and the transcript and settings panels no longer show at the same time.
 
 ## [1.4.0] - 2026-10-23
 
