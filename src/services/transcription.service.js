@@ -298,6 +298,7 @@ class TranscriptionService extends EventEmitter {
       python,
       script: this._resolveScriptPath('whisper_offline.py'),
       transcodeScript: this._resolveScriptPath('transcode_flac.py'),
+      convertScript: this._resolveScriptPath('convert_ct2.py'),
       modelDir: this._resolveModelDir(),
       env: whisperPool.buildEnv(python)
     };
