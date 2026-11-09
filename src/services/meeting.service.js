@@ -3,6 +3,7 @@ const path = require('path');
 const EventEmitter = require('events');
 const settingsStore = require('../core/settings.store');
 const corrections = require('./corrections');
+const { meetingFolderName } = require('../core/profiles');
 const logger = require('../core/logger').createServiceLogger('MEETING');
 
 const pad = (value) => String(value).padStart(2, '0');
@@ -72,7 +73,8 @@ class MeetingService extends EventEmitter {
     // Fail loudly here rather than deep inside the writer mid-meeting.
     fs.accessSync(root, fs.constants.W_OK);
 
-    const base = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+    const base = meetingFolderName(settingsStore.get('folderNamePrefix'), stamp);
     let folder = path.join(root, base);
     let suffix = 2;
     while (fs.existsSync(folder)) {

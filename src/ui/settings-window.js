@@ -9,6 +9,8 @@
 // id -> how to read/write the DOM element
 const FIELDS = {
   transcriptRoot: 'text',
+  folderNamePrefix: 'text',
+  showTranscriptOnRecord: 'check',
   reorderWindowMs: 'number',
   autoStartRecording: 'check',
   autoUpdate: 'check',
@@ -60,10 +62,49 @@ const MODEL_GROUPS = [
   ['custom', 'Custom']
 ];
 
+// localStorage can be blocked or empty; the window must work without it.
+function recall(key, fallback = null) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function remember(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* not persisted */ }
+}
+
 function formatSize(bytes) {
   if (!bytes) return '';
   return bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.round(bytes / 1e6) + ' MB';
 }
+
+// Inline SVG: Windows has no flag emoji, it would draw the letters "US" / "DE".
+function starPoints(cx, cy, outer, inner) {
+  const points = [];
+  for (let i = 0; i < 10; i++) {
+    const radius = i % 2 === 0 ? outer : inner;
+    const angle = (Math.PI / 5) * i - Math.PI / 2;
+    points.push((cx + radius * Math.cos(angle)).toFixed(2) + ',' + (cy + radius * Math.sin(angle)).toFixed(2));
+  }
+  return points.join(' ');
+}
+
+const FLAGS = {
+  us: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#fff"/>' +
+    [0, 1, 2, 3, 4, 5, 6].map((i) => '<rect y="' + (i * 2 * 20 / 13).toFixed(2) + '" width="30" height="' + (20 / 13).toFixed(2) + '" fill="#b22234"/>').join('') +
+    '<rect width="12" height="10.77" fill="#3c3b6e"/></svg>',
+  de: '<svg viewBox="0 0 30 20"><rect width="30" height="6.67" fill="#000"/><rect y="6.67" width="30" height="6.67" fill="#dd0000"/><rect y="13.33" width="30" height="6.67" fill="#ffce00"/></svg>',
+  tn: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#e70013"/><circle cx="15" cy="10" r="5.6" fill="#fff"/>' +
+    '<circle cx="14.1" cy="10" r="4.2" fill="#e70013"/><circle cx="15.5" cy="10" r="3.4" fill="#fff"/>' +
+    '<circle cx="16.2" cy="10" r="2.7" fill="#e70013"/><polygon points="' + starPoints(16.1, 10, 2.1, 0.9) + '" fill="#fff"/>' +
+    '<polygon points="' + starPoints(16.1, 10, 1.6, 0.7) + '" fill="#e70013"/></svg>',
+  custom: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#3a3a44"/><rect x="5" y="5" width="20" height="2" rx="1" fill="#9aa"/>' +
+    '<rect x="5" y="9" width="20" height="2" rx="1" fill="#9aa"/><rect x="5" y="13" width="20" height="2" rx="1" fill="#9aa"/>' +
+    '<circle cx="20" cy="6" r="2.4" fill="#6fb4ff"/><circle cx="10" cy="10" r="2.4" fill="#6fb4ff"/><circle cx="17" cy="14" r="2.4" fill="#6fb4ff"/></svg>'
+};
 
 class SettingsWindow {
   constructor() {
@@ -76,15 +117,32 @@ class SettingsWindow {
     this.bindEvents();
     this.load();
     this.loadModels();
+    this.loadProfiles();
   }
 
   bindTabs() {
+    const show = (tab) => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(`page-${tab.dataset.page}`).classList.add('active');
+    };
     document.querySelectorAll('.tab').forEach((tab) => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-        document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(`page-${tab.dataset.page}`).classList.add('active');
+        show(tab);
+        remember('settings.tab', tab.dataset.page);
+      });
+    });
+    const last = document.querySelector('.tab[data-page="' + (recall('settings.tab') || '') + '"]');
+    if (last) show(last);
+
+    // Collapsible sections remember whether the user left them open.
+    const open = recall('settings.sections', {});
+    document.querySelectorAll('details.section').forEach((section) => {
+      const key = section.dataset.key;
+      if (key in open) section.open = Boolean(open[key]);
+      section.addEventListener('toggle', () => {
+        remember('settings.sections', { ...recall('settings.sections', {}), [key]: section.open });
       });
     });
   }
@@ -124,6 +182,12 @@ class SettingsWindow {
         this.save({ whisperPython: result.path });
         this.refreshWhisperStatus();
       }
+    });
+
+    document.getElementById('resetProfile').addEventListener('click', async () => {
+      const result = await window.electronAPI.resetProfile(this.activeProfile);
+      if (result.settings) this.apply(result.settings);
+      if (result.profiles) this.renderProfiles(result);
     });
 
     document.getElementById('installWhisper').addEventListener('click', () => this.installWhisper());
@@ -189,6 +253,49 @@ class SettingsWindow {
     });
 
     window.electronAPI.onInstallProgress((line) => this.appendLog(line));
+  }
+
+  async loadProfiles() {
+    try {
+      this.renderProfiles(await window.electronAPI.listProfiles());
+    } catch (_) { /* main process not ready; the next open retries */ }
+  }
+
+  renderProfiles({ active, profiles }) {
+    this.activeProfile = active;
+    const holder = document.getElementById('profileCards');
+    holder.textContent = '';
+    for (const profile of profiles) {
+      const card = document.createElement('button');
+      card.className = 'profile' + (profile.id === active ? ' active' : '');
+      card.title = profile.summary;
+      const flag = document.createElement('span');
+      flag.className = 'flag';
+      flag.innerHTML = FLAGS[profile.flag] || FLAGS.custom;
+      const name = document.createElement('span');
+      name.className = 'p-name';
+      name.textContent = profile.label;
+      const summary = document.createElement('span');
+      summary.className = 'p-sum';
+      summary.textContent = profile.summary;
+      card.append(flag, name, summary);
+      card.addEventListener('click', () => this.selectProfile(profile.id));
+      holder.appendChild(card);
+    }
+    const reset = document.getElementById('resetProfile');
+    const current = profiles.find((profile) => profile.id === active);
+    reset.hidden = !(current && current.edited && active !== 'custom');
+    document.getElementById('profileHint').textContent = current
+      ? 'Changes you make are remembered by this profile.'
+      : 'Pick a profile to preselect everything below.';
+  }
+
+  async selectProfile(id) {
+    const result = await window.electronAPI.selectProfile(id);
+    if (!result.ok) return;
+    this.apply(result.settings);
+    this.renderProfiles(result);
+    this.loadModels();
   }
 
   async load() {
@@ -307,6 +414,8 @@ class SettingsWindow {
     }
     if (!status.configured) {
       element.textContent = 'Not set up — click "Install / Repair Whisper".';
+      const install = document.querySelector('details.section[data-key="install"]');
+      if (install) install.open = true; // the one thing to do next must not be hidden
       return;
     }
     const parts = ['Ready'];
@@ -488,6 +597,8 @@ class SettingsWindow {
     await window.electronAPI.saveSettings(patch);
     // "In use" tags and the time estimates depend on these.
     if (MODEL_SETTINGS.some((key) => key in patch)) this.loadModels();
+    // The active profile just absorbed this edit (shows its "Reset" link).
+    if (this.activeProfile) this.loadProfiles();
     const saved = document.getElementById('saved');
     saved.classList.add('show');
     clearTimeout(this.savedTimer);

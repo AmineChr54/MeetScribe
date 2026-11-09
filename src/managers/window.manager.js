@@ -72,7 +72,7 @@ class WindowManager {
       },
       settings: {
         width: 470,
-        height: 580,
+        height: 640,
         file: 'settings.html',
         title: 'Settings',
         frame: false,
@@ -1514,11 +1514,11 @@ class WindowManager {
     return this.windowGap;
   }
 
-  handleRecordingStarted() {
+  handleRecordingStarted({ showTranscript = true } = {}) {
     this.isRecording = true;
-    // Bring the transcript up automatically — it is the whole point of
-    // starting a recording.
-    this.showTranscriptWindow();
+    // Bring the transcript up automatically unless the profile says otherwise
+    // (a final-pass-only recording has nothing to show).
+    if (showTranscript) this.showTranscriptWindow();
     this.broadcastToAllWindows('recording-state', { recording: true });
     logger.debug('Recording started; transcript window shown');
   }

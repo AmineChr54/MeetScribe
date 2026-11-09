@@ -91,6 +91,27 @@
     .model-meta { font-size: 10px; color: var(--muted); line-height: 1.4; }
     .model-state { font-size: 10px; color: var(--muted); white-space: nowrap; }
     .model-state.ok { color: #6ee7a8; }
+    .profiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; padding: 8px 12px 0; flex: 0 0 auto; }
+    .profile { -webkit-app-region: no-drag; display: flex; flex-direction: column; gap: 3px; text-align: left;
+      background: var(--field); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+      cursor: pointer; font-family: inherit; padding: 6px 7px; }
+    .profile:hover { border-color: rgba(255,255,255,0.25); }
+    .profile.active { border-color: var(--accent); background: rgba(111,180,255,0.12); }
+    .profile .flag { width: 28px; height: 19px; border-radius: 3px; overflow: hidden; display: block;
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.18); }
+    .profile .flag svg { display: block; width: 100%; height: 100%; }
+    .profile .p-name { font-size: 11px; font-weight: 600; }
+    .profile .p-sum { font-size: 9px; color: var(--muted); line-height: 1.3; }
+    .profile-foot { display: flex; justify-content: space-between; padding: 4px 14px 0; font-size: 10px; color: var(--muted); }
+    .profile-foot button { background: none; border: none; color: var(--accent); cursor: pointer;
+      font-family: inherit; font-size: 10px; padding: 0; -webkit-app-region: no-drag; }
+    details.section { border-top: 1px solid var(--border); margin-top: 10px; }
+    details.section > summary { -webkit-app-region: no-drag; cursor: pointer; list-style: none; padding: 8px 0 2px;
+      font-size: 11px; color: var(--muted); }
+    details.section > summary::-webkit-details-marker { display: none; }
+    details.section > summary::before { content: 'B8  '; }
+    details.section[open] > summary::before { content: 'BE  '; }
+    details.section[open] > summary { color: var(--text); }
     .model-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; }
     .model-group:first-child { margin-top: 0; }
     .model-more > summary { cursor: pointer; font-size: 11px; color: var(--muted); margin: 10px 0 4px; }
@@ -135,6 +156,10 @@
       <div class="spacer"></div>
     </header>
 
+    <div class="profiles" id="profileCards"></div>
+    <div class="profile-foot"><span id="profileHint">Pick a profile to preselect everything below.</span>
+      <button id="resetProfile" hidden>Reset this profile</button></div>
+
     <div class="tabs">
       <button class="tab active" data-page="recording">Recording</button>
       <button class="tab" data-page="audio">Audio</button>
@@ -154,6 +179,17 @@
             <button class="action" id="openFolder">Open</button>
           </div>
           <div class="hint">Each meeting gets its own folder containing transcript.txt and any screenshots.</div>
+        </div>
+
+        <div class="field">
+          <label for="folderNamePrefix">Meeting folder name</label>
+          <input type="text" id="folderNamePrefix" placeholder="e.g. Standup (empty = just the date)" maxlength="40" />
+          <div class="hint">Folders become "name_2026-01-31_10-30".</div>
+        </div>
+
+        <div class="check">
+          <input type="checkbox" id="showTranscriptOnRecord" />
+          <label for="showTranscriptOnRecord">Show the transcript when a recording starts</label>
         </div>
 
         <div class="check">
@@ -269,6 +305,8 @@
           <div class="hint">Picking the actual language is faster and more accurate than auto-detection.</div>
         </div>
 
+        <details class="section" data-key="device">
+          <summary>Device &amp; precision</summary>
         <div class="field">
           <div class="row">
             <div style="flex:1">
@@ -291,7 +329,10 @@
             </div>
           </div>
         </div>
+        </details>
 
+        <details class="section" data-key="install">
+          <summary>Whisper installation</summary>
         <div class="field">
           <label for="whisperPython">Python (Whisper environment)</label>
           <div class="row">
@@ -307,7 +348,10 @@
           <div class="status-line" id="whisperStatus">Checking…</div>
           <div class="log" id="installLog"></div>
         </div>
+        </details>
 
+        <details class="section" data-key="vad">
+          <summary>Advanced (line detection, workers)</summary>
         <div class="field">
           <label>Advanced</label>
           <div class="row">
@@ -331,6 +375,8 @@
             </div>
           </div>
         </div>
+        </details>
+
       </section>
 
 
@@ -401,6 +447,8 @@
             and your meetings after every final pass. Live-only models show no estimate.</div>
         </div>
 
+        <details class="section" data-key="final-speed">
+          <summary>Speed &amp; quality</summary>
         <div class="field">
           <label for="offlineMode">Speed</label>
           <select id="offlineMode">
@@ -430,7 +478,10 @@
           <div class="hint">Marked ~like this~ in transcript.final.md and listed in an index at the end,
             so whoever corrects it knows where to look instead of suspecting everything equally.</div>
         </div>
+        </details>
 
+        <details class="section" data-key="final-extra">
+          <summary>Cross-check &amp; re-run</summary>
         <div class="field">
           <label for="offlineDiffModel">Cross-check against a second model (optional)</label>
           <input type="text" id="offlineDiffModel" placeholder="empty = off" />
@@ -446,6 +497,8 @@
           <div class="hint">Edit that meeting's glossary.txt first, then re-run to re-transcribe its
             archived audio with the vocabulary it needed.</div>
         </div>
+        </details>
+
       </section>
       <!-- Appearance -->
       <section class="page" id="page-appearance">
