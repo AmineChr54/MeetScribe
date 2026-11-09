@@ -23,25 +23,30 @@ const logger = require('../core/logger').createServiceLogger('MODELS');
  */
 const CATALOG = [
   { id: 'tiny', repo: 'Systran/faster-whisper-tiny', label: 'tiny', sizeMb: 75,
-    note: 'Multilingual · live only: too inaccurate for a final pass', speed: 0.08, loadSec: 1, roles: ['live'] },
+    note: 'Multilingual · live only: too inaccurate for a final pass', speed: 0.08, loadSec: 1, roles: ['live'], category: 'live' },
   { id: 'base', repo: 'Systran/faster-whisper-base', label: 'base', sizeMb: 145,
-    note: 'Multilingual', speed: 0.1, loadSec: 1, roles: ['live'] },
+    note: 'Multilingual', speed: 0.1, loadSec: 1, roles: ['live'], category: 'live' },
   { id: 'small', repo: 'Systran/faster-whisper-small', label: 'small', sizeMb: 465,
-    note: 'Multilingual · recommended for live', speed: 0.142, loadSec: 5, roles: ['live', 'final'] },
+    note: 'Multilingual · recommended for live', speed: 0.142, loadSec: 5, roles: ['live', 'final'], category: 'live' },
+  { id: 'small.en', repo: 'Systran/faster-whisper-small.en', label: 'small.en', sizeMb: 465,
+    note: 'English only · recommended for live English', speed: 0.142, loadSec: 5, roles: ['live'], category: 'live' },
+  { id: 'scheidti/whisper-tiny-german-1224-ct2', repo: 'scheidti/whisper-tiny-german-1224-ct2',
+    label: 'German tiny', sizeMb: 75, note: 'German fine-tune of tiny (primeline) · fast, made for live',
+    speed: 0.08, loadSec: 1, roles: ['live'], category: 'finetune' },
   { id: 'medium', repo: 'Systran/faster-whisper-medium', label: 'medium', sizeMb: 1530,
-    note: 'Multilingual', speed: 0.313, loadSec: 8, roles: ['live', 'final'] },
+    note: 'Multilingual', speed: 0.313, loadSec: 8, roles: ['live', 'final'], category: 'final' },
   { id: 'large-v3-turbo', repo: 'mobiuslabsgmbh/faster-whisper-large-v3-turbo', label: 'large-v3-turbo', sizeMb: 1620,
-    note: 'Multilingual · recommended final pass', speed: 0.248, loadSec: 10, roles: ['live', 'final'] },
+    note: 'Multilingual · recommended final pass', speed: 0.248, loadSec: 10, roles: ['live', 'final'], category: 'final' },
   { id: 'cstr/whisper-large-v3-turbo-german-int8_float32', repo: 'cstr/whisper-large-v3-turbo-german-int8_float32',
     label: 'German turbo', sizeMb: 815, note: 'German fine-tune of large-v3-turbo (primeline)',
-    speed: 0.241, loadSec: 5, roles: ['final'] },
+    speed: 0.241, loadSec: 5, roles: ['final'], category: 'finetune' },
   { id: 'large-v3', repo: 'Systran/faster-whisper-large-v3', label: 'large-v3', sizeMb: 3090,
-    note: 'Multilingual · slowest, most accurate', speed: 0.7, loadSec: 15, roles: ['final'] },
+    note: 'Multilingual · slowest, most accurate', speed: 0.7, loadSec: 15, roles: ['final'], category: 'final' },
   { id: 'tnfru/whisper-large-v3-german-ct2', repo: 'tnfru/whisper-large-v3-german-ct2', label: 'German large-v3',
-    sizeMb: 3090, note: 'German fine-tune of large-v3 (primeline) · slow', speed: 0.7, loadSec: 15, roles: ['final'] },
+    sizeMb: 3090, note: 'German fine-tune of large-v3 (primeline) · slow', speed: 0.7, loadSec: 15, roles: ['final'], category: 'finetune' },
   { id: 'medyas/FarukSTT', repo: 'medyas/FarukSTT', label: 'Tunisian large-v3',
     sizeMb: 3090, note: 'Tunisian Arabic (Derja) fine-tune of large-v3 (FarukSTT) · converted on download, slow',
-    speed: 0.7, loadSec: 15, roles: ['final'], convert: true }
+    speed: 0.7, loadSec: 15, roles: ['final'], category: 'finetune', convert: true }
 ];
 
 const ALIASES = { turbo: 'large-v3-turbo', large: 'large-v3' };

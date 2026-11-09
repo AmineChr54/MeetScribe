@@ -53,6 +53,13 @@ const FIELDS = {
 // Settings that change what the model list shows.
 const MODEL_SETTINGS = ['whisperModel', 'offlineModel', 'offlineDiffModel', 'offlineMode', 'offlineCpuThreads'];
 
+const MODEL_GROUPS = [
+  ['live', 'Live models'],
+  ['final', 'Final-pass models'],
+  ['finetune', 'Language fine-tunes'],
+  ['custom', 'Custom']
+];
+
 function formatSize(bytes) {
   if (!bytes) return '';
   return bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.round(bytes / 1e6) + ' MB';
@@ -358,7 +365,40 @@ class SettingsWindow {
   renderModels(rows) {
     const list = document.getElementById('modelList');
     list.textContent = '';
-    for (const row of rows) list.appendChild(this.renderModel(row));
+
+    // What is on disk comes first, by purpose; everything else hides under one fold.
+    const have = rows.filter((row) => row.downloaded);
+    const rest = rows.filter((row) => !row.downloaded);
+    for (const [category, title] of MODEL_GROUPS) {
+      const group = have.filter((row) => (row.custom ? 'custom' : row.category || 'final') === category);
+      if (!group.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'model-group';
+      heading.textContent = title;
+      list.appendChild(heading);
+      for (const row of group) list.appendChild(this.renderModel(row));
+    }
+    if (!have.length) {
+      const none = document.createElement('div');
+      none.className = 'hint';
+      none.textContent = 'No models downloaded yet.';
+      list.appendChild(none);
+    }
+
+    if (rest.length) {
+      const more = document.createElement('details');
+      more.className = 'model-more';
+      more.open = Boolean(this.availableOpen) || rest.some((row) => row.downloading);
+      more.addEventListener('toggle', () => { this.availableOpen = more.open; });
+      const summary = document.createElement('summary');
+      summary.textContent = 'Available to download (' + rest.length + ')';
+      more.appendChild(summary);
+      const body = document.createElement('div');
+      body.className = 'models';
+      for (const row of rest) body.appendChild(this.renderModel(row));
+      more.appendChild(body);
+      list.appendChild(more);
+    }
     this.markDownloaded(rows);
   }
 
