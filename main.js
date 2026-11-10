@@ -370,6 +370,23 @@ class ApplicationController {
       return null;
     }
 
+    // With the live transcript off the final pass is the only transcript. If it
+    // cannot run, say so now rather than leave a meeting with audio and no text.
+    if (!transcriptionService.isLiveEnabled()) {
+      const reason = !transcriptionService.isAvailable()
+        ? "Whisper is not set up"
+        : !settingsStore.get("offlinePassEnabled")
+          ? "the final pass is turned off"
+          : "";
+      if (reason) {
+        const message =
+          `The live transcript is off and ${reason}, so this meeting will only be recorded as audio. ` +
+          "Re-run the final pass later to get a transcript.";
+        windowManager.broadcastToAllWindows("transcription-error", { message });
+        logger.warn(message);
+      }
+    }
+
     let status;
     try {
       status = meetingService.start();
