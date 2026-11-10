@@ -319,6 +319,14 @@ class ApplicationController {
       cancelRunning: () => offlinePass.cancel(),
       dequeue: (folder) => offlinePass.dequeue(folder),
       reorder: (folder, delta) => offlinePass.reorder(folder, delta),
+      settings: () => settingsStore.all(),
+      saveSettings: (patch) => this.saveSettings(patch),
+      profiles: () => this.listProfiles(),
+      selectProfile: (id) => this.selectProfile(id),
+      resetProfile: (id) => this.resetProfile(id),
+      updateProfile: (id, values) => this.updateProfile(id, values),
+      downloadModel: (id) => this.downloadModel(id),
+      deleteModel: (id) => this.deleteModel(id),
     });
     // Everything the overlay hears about the final pass, the manager hears too.
     for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
@@ -688,8 +696,9 @@ class ApplicationController {
         recording: transcriptionService.isRecording,
         liveModel: settings.whisperModel,
         finalRunning: status.running,
-        finalModel: settings.offlineModel,
-        diffModel: settings.offlineDiffModel,
+        // A re-run from the manager may be using its own model right now.
+        finalModel: (status.overrides && status.overrides.model) || settings.offlineModel,
+        diffModel: status.overrides && status.overrides.diffModel !== undefined ? status.overrides.diffModel : settings.offlineDiffModel,
       });
     } catch (error) {
       return { ok: false, error: error.message };
@@ -833,6 +842,7 @@ class ApplicationController {
     // Skip the settings pane itself: it already has these values, and pushing
     // them back would rewrite fields under the user's cursor.
     windowManager.broadcastToAllWindows("load-settings", this.getSettings(), ["settings"]);
+    managerServer.broadcast("settings", { reason: "saved" });
     return { ok: true, settings: next };
   }
 
@@ -847,6 +857,20 @@ class ApplicationController {
       const { patch } = profiles.select(id, settings, settings.profiles);
       this.saveSettings(patch);
       return { ok: true, settings: this.getSettings(), ...this.listProfiles() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /** Edit any profile's values (browser manager); the active one is applied at once. */
+  updateProfile(id, values) {
+    try {
+      const settings = settingsStore.all();
+      const stored = profiles.update(id, values, settings.profiles);
+      settingsStore.update({ profiles: stored });
+      if (id === settings.activeProfile) return this.selectProfile(id);
+      managerServer.broadcast("settings", { reason: "profile" });
+      return { ok: true, ...this.listProfiles() };
     } catch (error) {
       return { ok: false, error: error.message };
     }
