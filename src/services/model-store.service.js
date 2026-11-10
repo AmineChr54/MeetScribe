@@ -15,25 +15,38 @@ const logger = require('../core/logger').createServiceLogger('MODELS');
  * batch 8) over 10 minutes of German speech. The two large-v3 entries are not
  * measured yet and are a rough guess (32 decoder layers against turbo's 4);
  * real passes replace every prior (speed-stats.service.js).
+ *
+ * `convert: true` marks a repo published only as Transformers weights. Download
+ * fetches and converts it to CTranslate2 (scripts/convert_ct2.py) into
+ * <modelDir>/converted/<repo with -- for />, which the Python workers look at
+ * before asking faster-whisper to fetch the name from Hugging Face.
  */
 const CATALOG = [
   { id: 'tiny', repo: 'Systran/faster-whisper-tiny', label: 'tiny', sizeMb: 75,
-    note: 'Multilingual · live only: too inaccurate for a final pass', speed: 0.08, loadSec: 1, roles: ['live'] },
+    note: 'Multilingual · live only: too inaccurate for a final pass', speed: 0.08, loadSec: 1, roles: ['live'], category: 'live' },
   { id: 'base', repo: 'Systran/faster-whisper-base', label: 'base', sizeMb: 145,
-    note: 'Multilingual', speed: 0.1, loadSec: 1, roles: ['live'] },
+    note: 'Multilingual', speed: 0.1, loadSec: 1, roles: ['live'], category: 'live' },
   { id: 'small', repo: 'Systran/faster-whisper-small', label: 'small', sizeMb: 465,
-    note: 'Multilingual · recommended for live', speed: 0.142, loadSec: 5, roles: ['live', 'final'] },
+    note: 'Multilingual · recommended for live', speed: 0.142, loadSec: 5, roles: ['live', 'final'], category: 'live' },
+  { id: 'small.en', repo: 'Systran/faster-whisper-small.en', label: 'small.en', sizeMb: 465,
+    note: 'English only · recommended for live English', speed: 0.142, loadSec: 5, roles: ['live'], category: 'live' },
+  { id: 'scheidti/whisper-tiny-german-1224-ct2', repo: 'scheidti/whisper-tiny-german-1224-ct2',
+    label: 'German tiny', sizeMb: 75, note: 'German fine-tune of tiny (primeline) · fast, made for live',
+    speed: 0.08, loadSec: 1, roles: ['live'], category: 'finetune' },
   { id: 'medium', repo: 'Systran/faster-whisper-medium', label: 'medium', sizeMb: 1530,
-    note: 'Multilingual', speed: 0.313, loadSec: 8, roles: ['live', 'final'] },
+    note: 'Multilingual', speed: 0.313, loadSec: 8, roles: ['live', 'final'], category: 'final' },
   { id: 'large-v3-turbo', repo: 'mobiuslabsgmbh/faster-whisper-large-v3-turbo', label: 'large-v3-turbo', sizeMb: 1620,
-    note: 'Multilingual · recommended final pass', speed: 0.248, loadSec: 10, roles: ['live', 'final'] },
+    note: 'Multilingual · recommended final pass', speed: 0.248, loadSec: 10, roles: ['live', 'final'], category: 'final' },
   { id: 'cstr/whisper-large-v3-turbo-german-int8_float32', repo: 'cstr/whisper-large-v3-turbo-german-int8_float32',
     label: 'German turbo', sizeMb: 815, note: 'German fine-tune of large-v3-turbo (primeline)',
-    speed: 0.241, loadSec: 5, roles: ['final'] },
+    speed: 0.241, loadSec: 5, roles: ['final'], category: 'finetune' },
   { id: 'large-v3', repo: 'Systran/faster-whisper-large-v3', label: 'large-v3', sizeMb: 3090,
-    note: 'Multilingual · slowest, most accurate', speed: 0.7, loadSec: 15, roles: ['final'] },
+    note: 'Multilingual · slowest, most accurate', speed: 0.7, loadSec: 15, roles: ['final'], category: 'final' },
   { id: 'tnfru/whisper-large-v3-german-ct2', repo: 'tnfru/whisper-large-v3-german-ct2', label: 'German large-v3',
-    sizeMb: 3090, note: 'German fine-tune of large-v3 (primeline) · slow', speed: 0.7, loadSec: 15, roles: ['final'] }
+    sizeMb: 3090, note: 'German fine-tune of large-v3 (primeline) · slow', speed: 0.7, loadSec: 15, roles: ['final'], category: 'finetune' },
+  { id: 'medyas/FarukSTT', repo: 'medyas/FarukSTT', label: 'Tunisian large-v3',
+    sizeMb: 3090, note: 'Tunisian Arabic (Derja) fine-tune of large-v3 (FarukSTT) · converted on download, slow',
+    speed: 0.7, loadSec: 15, roles: ['final'], category: 'finetune', convert: true }
 ];
 
 const ALIASES = { turbo: 'large-v3-turbo', large: 'large-v3' };
@@ -50,8 +63,9 @@ function repoFor(id) {
   return id.includes('/') ? id : null;
 }
 
-function dirFor(modelDir, repo) {
-  return path.join(modelDir, 'models--' + repo.replace(/\//g, '--'));
+function dirFor(modelDir, repo, convert = false) {
+  const slug = repo.replace(/\//g, '--');
+  return convert ? path.join(modelDir, 'converted', slug) : path.join(modelDir, 'models--' + slug);
 }
 
 function sizeOf(dir) {
@@ -76,8 +90,11 @@ function sizeOf(dir) {
  * Complete means faster-whisper can load it offline: a snapshot holding the
  * weights and config, and no half-written blob from an interrupted download.
  */
-function isComplete(dir) {
+function isComplete(dir, convert = false) {
   try {
+    // A converted model is a plain folder; the converter renames it into place
+    // only once model.bin is written.
+    if (convert) return fs.existsSync(path.join(dir, 'model.bin')) && fs.existsSync(path.join(dir, 'config.json'));
     const blobs = path.join(dir, 'blobs');
     if (fs.existsSync(blobs) && fs.readdirSync(blobs).some((name) => name.endsWith('.incomplete'))) return false;
     const snapshots = path.join(dir, 'snapshots');
@@ -87,6 +104,28 @@ function isComplete(dir) {
   } catch (_) {
     return false;
   }
+}
+
+/**
+ * What to spawn to fetch one model. A normal model goes through
+ * faster-whisper's own downloader so the layout is exactly what WhisperModel()
+ * looks for. A `convert` model runs scripts/convert_ct2.py instead, with the
+ * Hugging Face cache pointed at `scratch` so the full-precision source weights
+ * land there (and are deleted afterwards) rather than in the user's own cache.
+ */
+function downloadCommand({ repo, dir, convert, scratch, paths }) {
+  if (!convert) {
+    return {
+      args: ['-c',
+        'import sys\nfrom faster_whisper import download_model\ndownload_model(sys.argv[1], cache_dir=sys.argv[2])',
+        repo, paths.modelDir],
+      env: paths.env
+    };
+  }
+  return {
+    args: ['-u', paths.convertScript, repo, dir],
+    env: { ...paths.env, HF_HUB_CACHE: scratch, TRANSFORMERS_CACHE: scratch }
+  };
 }
 
 class ModelStore extends EventEmitter {
@@ -116,12 +155,12 @@ class ModelStore extends EventEmitter {
     }
 
     return rows.map((row) => {
-      const dir = dirFor(modelDir, row.repo);
+      const dir = dirFor(modelDir, row.repo, row.convert);
       const exists = fs.existsSync(dir);
       const downloading = this.downloading && this.downloading.repo === row.repo;
       return {
         ...row,
-        downloaded: exists && !downloading && isComplete(dir),
+        downloaded: exists && !downloading && isComplete(dir, row.convert),
         downloading: Boolean(downloading),
         progress: downloading ? this.downloading.progress : 0,
         bytes: exists ? sizeOf(dir) : 0,
@@ -131,10 +170,9 @@ class ModelStore extends EventEmitter {
   }
 
   /**
-   * Fetch a model into the cache without loading it, through faster-whisper's
-   * own downloader so the layout is exactly what WhisperModel() looks for.
+   * Fetch a model into the cache without loading it (see downloadCommand).
    * @param {string} id
-   * @param {object} paths  { python, modelDir, env } from transcriptionService.getPaths()
+   * @param {object} paths  { python, modelDir, convertScript, env } from transcriptionService.getPaths()
    */
   download(id, paths) {
     const repo = repoFor(id);
@@ -148,7 +186,14 @@ class ModelStore extends EventEmitter {
 
     const entry = catalogEntry(id);
     const expected = ((entry && entry.sizeMb) || 0) * 1e6;
-    const dir = dirFor(paths.modelDir, repo);
+    const convert = Boolean(entry && entry.convert);
+    const dir = dirFor(paths.modelDir, repo, convert);
+    if (convert && (!paths.convertScript || !fs.existsSync(paths.convertScript))) {
+      throw new Error('convert_ct2.py was not found');
+    }
+    // The converter downloads the original weights here and they are removed
+    // afterwards, so the user's own Hugging Face cache does not gain ~6 GB.
+    const scratch = path.join(paths.modelDir, '.convert-' + repo.replace(/\//g, '--'));
     fs.mkdirSync(paths.modelDir, { recursive: true });
     this.downloading = { repo, progress: 0 };
     this.emit('progress', { id, repo, state: 'downloading', progress: 0 });
@@ -156,23 +201,30 @@ class ModelStore extends EventEmitter {
     const started = Date.now();
 
     return new Promise((resolve, reject) => {
-      const child = spawn(paths.python, ['-c',
-        'import sys\nfrom faster_whisper import download_model\ndownload_model(sys.argv[1], cache_dir=sys.argv[2])',
-        repo, paths.modelDir], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: paths.env });
+      const command = downloadCommand({ repo, dir, convert, scratch, paths });
+      const child = spawn(paths.python, command.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: command.env
+      });
 
+      // The converter reports on stdout and fails on stderr; the tail of both
+      // is what explains a failure.
       const stderrTail = [];
-      child.stderr.on('data', (chunk) => {
+      const keepTail = (chunk) => {
         const text = chunk.toString().trim();
         if (!text) return;
         stderrTail.push(text);
         while (stderrTail.length > 6) stderrTail.shift();
-      });
+      };
+      child.stdout.on('data', keepTail);
+      child.stderr.on('data', keepTail);
 
       // The downloader prints a progress bar for a terminal; the size on disk
       // against the catalog size is simpler and good enough for a bar.
       const poll = setInterval(() => {
         if (!expected) return;
-        const progress = Math.min(0.99, sizeOf(dir) / expected);
+        // Conversion pulls the full-precision weights (about twice the final size).
+        const onDisk = convert ? sizeOf(scratch) + sizeOf(dir + '.partial') : sizeOf(dir);
+        const progress = Math.min(0.99, onDisk / (convert ? expected * 2 : expected));
         this.downloading.progress = progress;
         this.emit('progress', { id, repo, state: 'downloading', progress });
       }, 2000);
@@ -180,6 +232,13 @@ class ModelStore extends EventEmitter {
       const finish = (error) => {
         clearInterval(poll);
         this.downloading = null;
+        if (convert) {
+          fs.rmSync(scratch, { recursive: true, force: true });
+          fs.rmSync(dir + '.partial', { recursive: true, force: true });
+          // Left behind by builds that sent this repo through the plain
+          // downloader: config files only, never loadable.
+          fs.rmSync(dirFor(paths.modelDir, repo, false), { recursive: true, force: true });
+        }
         if (error) {
           logger.error('Model download failed', { repo, error: error.message });
           this.emit('progress', { id, repo, state: 'failed', error: error.message });
@@ -192,7 +251,7 @@ class ModelStore extends EventEmitter {
 
       child.on('error', finish);
       child.on('close', (code) => {
-        if (code === 0 && isComplete(dir)) return finish(null);
+        if (code === 0 && isComplete(dir, convert)) return finish(null);
         const detail = stderrTail.join(' | ').slice(-400);
         finish(new Error('Download failed' + (code ? ' (exit ' + code + ')' : '') + (detail ? ': ' + detail : '')));
       });
@@ -215,7 +274,7 @@ class ModelStore extends EventEmitter {
       throw new Error('A final pass is using this model; wait for it to finish');
     }
 
-    const dir = dirFor(modelDir, repo);
+    const dir = dirFor(modelDir, repo, Boolean(catalogEntry(id) && catalogEntry(id).convert));
     if (!fs.existsSync(dir)) return { ok: true, freed: 0 };
     const freed = sizeOf(dir);
     try {
@@ -234,4 +293,5 @@ module.exports = new ModelStore();
 module.exports.CATALOG = CATALOG;
 module.exports.catalogEntry = catalogEntry;
 module.exports.repoFor = repoFor;
+module.exports.downloadCommand = downloadCommand;
 module.exports.ModelStore = ModelStore;

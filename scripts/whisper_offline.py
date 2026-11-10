@@ -85,8 +85,19 @@ def resolve_compute_type(requested, device):
     return 'float16' if device == 'cuda' else 'int8'
 
 
+def resolve_local_model(name, model_dir):
+    """Models converted in-app live in <model_dir>/converted/<repo with -- for />."""
+    if model_dir and name:
+        candidate = os.path.join(model_dir, 'converted', name.replace('/', '--'))
+        if os.path.isfile(os.path.join(candidate, 'model.bin')):
+            return candidate
+    return name
+
+
 def load_model(job, name):
     from faster_whisper import WhisperModel
+
+    name = resolve_local_model(name, job.get('model_dir'))
 
     device = resolve_device(job.get('device'))
     compute_type = resolve_compute_type(job.get('compute_type'), device)

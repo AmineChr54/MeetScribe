@@ -60,6 +60,7 @@ class SettingsStore {
       whisperWorkerCount: config.get('whisper.workerCount'),
       whisperIdleUnloadMs: config.get('whisper.idleUnloadMs'),
 
+      liveTranscription: config.get('whisper.liveEnabled'),
       vadEnabled: config.get('whisper.vadEnabled'),
       silenceHangoverMs: config.get('whisper.silenceHangoverMs'),
       minUtteranceMs: config.get('whisper.minUtteranceMs'),
@@ -68,6 +69,13 @@ class SettingsStore {
       vadEnergyFloor: config.get('whisper.vadEnergyFloor'),
 
       appIcon: 'terminal',
+
+      // Profiles (src/core/profiles.js): which one is active, and each
+      // profile's stored edits.
+      activeProfile: '',
+      profiles: {},
+      showTranscriptOnRecord: true,
+      folderNamePrefix: '',
       windowGap: config.get('ui.windowGap'),
       transcriptFontSize: config.get('ui.transcriptFontSize'),
       overlayOpacity: config.get('ui.overlayOpacity'),

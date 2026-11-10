@@ -117,7 +117,9 @@ class TranscriptWindow {
     }
     const hint = document.getElementById('emptyHint');
     if (hint && settings.transcriptRoot) {
-      hint.textContent = `Saving to ${settings.transcriptRoot}`;
+      hint.textContent = settings.liveTranscription === false
+        ? 'Live transcript is off: the final pass writes it after the meeting.'
+        : `Saving to ${settings.transcriptRoot}`;
     }
   }
 

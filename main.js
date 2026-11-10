@@ -57,6 +57,7 @@ const meetingService = require("./src/services/meeting.service");
 const audioArchive = require("./src/services/audio-archive.service");
 const offlinePass = require("./src/services/offline-pass.service");
 const modelStore = require("./src/services/model-store.service");
+const profiles = require("./src/core/profiles");
 const speedStats = require("./src/services/speed-stats.service");
 const windowManager = require("./src/managers/window.manager");
 
@@ -361,12 +362,29 @@ class ApplicationController {
   async startRecording() {
     if (transcriptionService.isRecording) return meetingService.getStatus();
 
-    if (!transcriptionService.isAvailable()) {
+    if (transcriptionService.isLiveEnabled() && !transcriptionService.isAvailable()) {
       const message =
         'Whisper is not set up yet. Open Settings (Ctrl+,) → Transcription → "Install / Repair Whisper".';
       windowManager.broadcastToAllWindows("transcription-error", { message });
       logger.warn(message);
       return null;
+    }
+
+    // With the live transcript off the final pass is the only transcript. If it
+    // cannot run, say so now rather than leave a meeting with audio and no text.
+    if (!transcriptionService.isLiveEnabled()) {
+      const reason = !transcriptionService.isAvailable()
+        ? "Whisper is not set up"
+        : !settingsStore.get("offlinePassEnabled")
+          ? "the final pass is turned off"
+          : "";
+      if (reason) {
+        const message =
+          `The live transcript is off and ${reason}, so this meeting will only be recorded as audio. ` +
+          "Re-run the final pass later to get a transcript.";
+        windowManager.broadcastToAllWindows("transcription-error", { message });
+        logger.warn(message);
+      }
     }
 
     let status;
@@ -382,7 +400,8 @@ class ApplicationController {
     // Start archiving before capture, so the recording covers the meeting from
     // its first chunk. A failure here must not stop the meeting — a live
     // transcript with no archive still beats no transcript at all.
-    if (settingsStore.get("archiveAudio")) {
+    // With the live transcript off the archive is the only record, so it is kept regardless.
+    if (settingsStore.get("archiveAudio") || !transcriptionService.isLiveEnabled()) {
       try {
         audioArchive.start(status.folder, {
           system: settingsStore.get("labelSystem") || "Them",
@@ -398,7 +417,9 @@ class ApplicationController {
     transcriptionService.start();
     await this.startAudioCapture();
 
-    windowManager.handleRecordingStarted();
+    windowManager.handleRecordingStarted({
+      showTranscript: settingsStore.get("showTranscriptOnRecord") !== false,
+    });
     windowManager.broadcastToAllWindows("meeting-started", status);
     logger.info("Recording started", { folder: status.folder });
     return status;
@@ -719,7 +740,14 @@ class ApplicationController {
 
   saveSettings(patch) {
     const previous = settingsStore.all();
-    const next = settingsStore.update(patch);
+    let next = settingsStore.update(patch);
+
+    // Edits made under an active profile are remembered by that profile.
+    // Picking a profile passes its own values through here too, which is a no-op.
+    if (!patch.profiles) {
+      const stored = profiles.recordEdit(next.activeProfile, patch, next, next.profiles);
+      if (stored !== next.profiles) next = settingsStore.update({ profiles: stored });
+    }
 
     if (patch.appIcon && patch.appIcon !== previous.appIcon) {
       this.updateAppIcon(patch.appIcon);
@@ -737,7 +765,35 @@ class ApplicationController {
     return { ok: true, settings: next };
   }
 
+  listProfiles() {
+    const settings = settingsStore.all();
+    return { active: settings.activeProfile, profiles: profiles.listProfiles(settings.profiles) };
+  }
+
+  selectProfile(id) {
+    try {
+      const settings = settingsStore.all();
+      const { patch } = profiles.select(id, settings, settings.profiles);
+      this.saveSettings(patch);
+      return { ok: true, settings: this.getSettings(), ...this.listProfiles() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  resetProfile(id) {
+    const settings = settingsStore.all();
+    const stored = profiles.reset(id, settings.profiles);
+    settingsStore.update({ profiles: stored });
+    // The active profile's values change under the user: re-apply them.
+    return id === settings.activeProfile ? this.selectProfile(id) : { ok: true, ...this.listProfiles() };
+  }
+
   setupIPCHandlers() {
+    ipcMain.handle("profiles:list", () => this.listProfiles());
+    ipcMain.handle("profiles:select", (_event, id) => this.selectProfile(id));
+    ipcMain.handle("profiles:reset", (_event, id) => this.resetProfile(id));
+
     // ── Meeting ──
     ipcMain.handle("meeting:start", () => this.startRecording());
     ipcMain.handle("meeting:stop", () => this.stopRecording());

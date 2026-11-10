@@ -27,6 +27,7 @@ faster on CPU with int8.
 
 import gc
 import json
+import os
 import sys
 import time
 import traceback
@@ -73,11 +74,22 @@ def resolve_compute_type(requested, device):
     return 'float16' if device == 'cuda' else 'int8'
 
 
+def resolve_local_model(name, model_dir):
+    """Models converted in-app live in <model_dir>/converted/<repo with -- for />."""
+    if model_dir and name:
+        candidate = os.path.join(model_dir, 'converted', name.replace('/', '--'))
+        if os.path.isfile(os.path.join(candidate, 'model.bin')):
+            return candidate
+    return name
+
+
 def load_model(name, device, compute_type, model_dir, cpu_threads):
     """Load (or reuse) the model. Falls back to CPU if CUDA init fails."""
     global MODEL, MODEL_KEY
 
     from faster_whisper import WhisperModel
+
+    name = resolve_local_model(name, model_dir)
 
     device = resolve_device(device)
     compute_type = resolve_compute_type(compute_type, device)
