@@ -178,6 +178,12 @@
       } else if (field.type === 'textarea') {
         input = el('textarea', { name: field.name, rows: field.rows || 4 });
         input.value = field.value || '';
+      } else if (field.type === 'checkbox') {
+        input = el('input', { type: 'checkbox', name: field.name });
+        input.checked = Boolean(field.value);
+        inputs[field.name] = input;
+        box.append(el('label', { class: 'check' }, [input, field.label]));
+        continue;
       } else {
         input = el('input', { type: field.type || 'text', name: field.name, placeholder: field.placeholder, required: field.required });
         input.value = field.value || '';
@@ -200,7 +206,7 @@
       dialog.addEventListener('close', () => {
         if (dialog.returnValue !== 'ok') return resolve(null);
         const values = {};
-        for (const [name, input] of Object.entries(inputs)) values[name] = input.value;
+        for (const [name, input] of Object.entries(inputs)) values[name] = input.type === 'checkbox' ? input.checked : input.value;
         resolve(values);
       }, { once: true });
     });
@@ -239,6 +245,7 @@
     nav.replaceChildren();
     const { meetings, folders } = state.library;
     const select = (id) => {
+      if (state.page && state.page !== 'library') showPage('library');
       state.folder = id;
       state.view = 'list';
       renderFolders();
@@ -1342,6 +1349,257 @@
     else if (state.player) state.player.seekAbs(abs, false);
   }
 
+  // ── Profiles, models, settings ──
+
+  function showPage(page) {
+    state.page = page;
+    document.querySelectorAll('.page-link').forEach((link) => link.classList.toggle('active', link.dataset.page === page));
+    const paged = page !== 'library';
+    document.querySelector('.app').classList.toggle('paged', paged);
+    $('pagePane').hidden = !paged;
+    for (const name of ['profiles', 'models', 'settings']) $('page-' + name).hidden = name !== page;
+    if (paged && state.player) state.player.pause();
+    if (page === 'profiles') loadProfiles();
+    if (page === 'models') loadModels();
+    if (page === 'settings') loadSettings();
+  }
+
+  const FLAGS = { us: '🇺🇸', gb: '🇬🇧', de: '🇩🇪', tn: '🇹🇳', fr: '🇫🇷', es: '🇪🇸', custom: '⚙️' };
+  const languageName = (code) => (LANGUAGES.find(([value]) => value === code) || [code, code])[1];
+
+  async function modelCatalog() {
+    const body = await attempt(() => api('/api/models'), 'Could not list the models');
+    state.models = body ? body.models : [];
+    return state.models;
+  }
+
+  const modelLabel = (id) => {
+    if (!id) return 'none';
+    const model = (state.models || []).find((entry) => entry.id === id || entry.repo === id);
+    return model ? model.label : id;
+  };
+
+  function modelOptions(role, { optional = false, current = '' } = {}) {
+    const list = (state.models || []).filter((model) => (model.roles || []).includes(role) || model.custom);
+    const options = list.map((model) => ({ value: model.id, label: model.label + (model.downloaded ? '' : ' (not downloaded)') }));
+    if (current && !options.some((option) => option.value === current)) options.unshift({ value: current, label: current });
+    return optional ? [{ value: '', label: 'None' }].concat(options) : options;
+  }
+
+  async function loadProfiles() {
+    const [body] = await Promise.all([attempt(() => api('/api/profiles'), 'Could not load the profiles'), modelCatalog()]);
+    if (!body) return;
+    const cards = $('profileCards');
+    cards.replaceChildren();
+    for (const profile of body.profiles) {
+      const values = profile.values;
+      const active = profile.id === body.active;
+      const glossaryTerms = String(values.glossary || '').split(/[\n,]/).filter((line) => line.trim() && !line.trim().startsWith('#')).length;
+      cards.append(el('div', { class: 'card' + (active ? ' active' : '') }, [
+        el('div', { class: 'title' }, [
+          el('span', { class: 'flag', text: FLAGS[profile.flag] || '🏳️' }),
+          el('span', { text: profile.label }),
+          active ? el('span', { class: 'pill final', text: 'active' }) : null,
+          profile.edited && profile.id !== 'custom' ? el('span', { class: 'pill', text: 'edited' }) : null
+        ]),
+        el('div', { class: 'muted', text: profile.summary }),
+        el('dl', {}, [
+          el('dt', { text: 'Live' }), el('dd', { text: values.liveTranscription === false ? 'off' : modelLabel(values.whisperModel) }),
+          el('dt', { text: 'Final' }), el('dd', { text: values.offlinePassEnabled === false ? 'off' : modelLabel(values.offlineModel) }),
+          el('dt', { text: 'Language' }), el('dd', { text: languageName(values.whisperLanguage || 'auto') }),
+          el('dt', { text: 'Folder name' }), el('dd', { text: values.folderNamePrefix || '(date only)' }),
+          el('dt', { text: 'Glossary' }), el('dd', { text: values.glossary === undefined ? 'keeps yours' : `${glossaryTerms} term${glossaryTerms === 1 ? '' : 's'}` })
+        ]),
+        el('div', { class: 'buttons' }, [
+          active ? null : el('button', { class: 'btn primary', text: 'Use', onclick: () => selectProfile(profile) }),
+          el('button', { class: 'btn', text: 'Edit…', onclick: () => editProfile(profile, active) }),
+          profile.edited && profile.id !== 'custom'
+            ? el('button', { class: 'btn ghost', text: 'Reset', title: 'Back to the built-in values', onclick: () => resetProfile(profile) })
+            : null
+        ])
+      ]));
+    }
+  }
+
+  async function selectProfile(profile) {
+    const result = await attempt(() => post('/api/profiles/select', { id: profile.id }), 'Could not switch the profile');
+    if (result) {
+      toast(`${profile.label} is active`);
+      loadProfiles();
+    }
+  }
+
+  async function resetProfile(profile) {
+    const values = await ask({ title: `Reset “${profile.label}”?`, text: 'Its models, language, folder name and glossary go back to the built-in values.', ok: 'Reset', danger: true });
+    if (!values) return;
+    const result = await attempt(() => post('/api/profiles/reset', { id: profile.id }), 'Could not reset the profile');
+    if (result) loadProfiles();
+  }
+
+  async function editProfile(profile, active) {
+    const values = profile.values;
+    const languages = LANGUAGES.map(([value, label]) => ({ value, label }));
+    const answer = await ask({
+      title: `Edit “${profile.label}”`,
+      text: active ? 'This is the active profile: saving also changes your current settings.' : '',
+      fields: [
+        { name: 'liveTranscription', label: 'Transcribe live while recording', type: 'checkbox', value: values.liveTranscription !== false },
+        { name: 'whisperModel', label: 'Live model', type: 'select', value: values.whisperModel, options: modelOptions('live', { current: values.whisperModel }) },
+        { name: 'whisperLanguage', label: 'Language', type: 'select', value: values.whisperLanguage || 'auto', options: languages },
+        { name: 'offlinePassEnabled', label: 'Run the final pass after every meeting', type: 'checkbox', value: values.offlinePassEnabled !== false },
+        { name: 'offlineModel', label: 'Final model', type: 'select', value: values.offlineModel, options: modelOptions('final', { current: values.offlineModel }) },
+        { name: 'archiveAudio', label: 'Keep the audio of each meeting', type: 'checkbox', value: values.archiveAudio !== false },
+        { name: 'showTranscriptOnRecord', label: 'Show the transcript panel when recording starts', type: 'checkbox', value: values.showTranscriptOnRecord !== false },
+        { name: 'folderNamePrefix', label: 'Meeting folder name', value: values.folderNamePrefix || '' },
+        { name: 'glossary', label: 'Glossary (leave empty to keep whatever glossary is in use)', type: 'textarea', rows: 5, value: values.glossary || '' }
+      ],
+      ok: 'Save'
+    });
+    if (!answer) return;
+    const update = { ...answer };
+    // An untouched empty glossary means "keep the current one", not "clear it".
+    if (!update.glossary.trim() && values.glossary === undefined) delete update.glossary;
+    const result = await attempt(() => post('/api/profiles/update', { id: profile.id, values: update }), 'Could not save the profile');
+    if (result) {
+      toast(`${profile.label} saved`);
+      loadProfiles();
+    }
+  }
+
+  async function loadModels() {
+    const models = await modelCatalog();
+    const settings = await attempt(() => api('/api/settings'));
+    state.settingValues = settings ? settings.values : state.settingValues || {};
+    renderModels(models);
+  }
+
+  function renderModels(models) {
+    const box = $('modelList');
+    box.replaceChildren();
+    const groups = [['live', 'For the live transcript'], ['final', 'For the final pass'], ['finetune', 'Fine-tuned for one language'], ['custom', 'Other models in the cache']];
+    for (const [category, title] of groups) {
+      const list = models.filter((model) => (model.custom ? 'custom' : model.category || 'final') === category);
+      if (!list.length) continue;
+      box.append(el('h2', { text: title }));
+      for (const model of list) box.append(modelRow(model));
+    }
+  }
+
+  function modelRow(model) {
+    const roles = model.roles || [];
+    const uses = { live: 'live', final: 'final', diff: 'cross-check' };
+    const inUse = (model.inUse || []).map((role) => uses[role]).filter(Boolean);
+    const minutes = model.estimate && model.estimate.minutes ? Math.max(1, Math.round(model.estimate.minutes)) : null;
+    const progress = model.downloading ? Math.round((model.progress || 0) * 100) : null;
+    const side = [];
+    if (inUse.length) side.push(el('span', { class: 'pill final', text: 'in use: ' + inUse.join(', ') }));
+    if (model.downloading) {
+      side.push(el('span', { class: 'muted', text: `Downloading… ${progress}%` }));
+    } else if (!model.downloaded) {
+      side.push(el('button', { class: 'btn primary small', text: `Download${model.sizeMb ? ' (' + fmtBytes(model.sizeMb * 1e6) + ')' : ''}`, onclick: () => modelAction('download', model) }));
+    } else {
+      if (roles.includes('live') && !(model.inUse || []).includes('live')) side.push(el('button', { class: 'btn small', text: 'Use live', onclick: () => useModel(model, 'live') }));
+      if (roles.includes('final') && !(model.inUse || []).includes('final')) side.push(el('button', { class: 'btn small', text: 'Use for final', onclick: () => useModel(model, 'final') }));
+      side.push(el('button', { class: 'btn ghost small danger', text: 'Delete', onclick: () => modelAction('delete', model) }));
+    }
+    return el('div', { class: 'model', dataset: { id: model.id } }, [
+      el('div', {}, [
+        el('div', { class: 'name', text: model.label }),
+        el('div', { class: 'note', text: [model.note, model.downloaded ? fmtBytes(model.bytes) + ' on disk' : '', minutes && roles.includes('final') ? `≈ ${minutes} min per hour of meeting` : ''].filter(Boolean).join(' · ') })
+      ]),
+      el('div', { class: 'side' }, side),
+      model.downloading ? el('div', { class: 'bar' }, el('span', { style: `width:${progress}%` })) : null
+    ]);
+  }
+
+  async function modelAction(action, model) {
+    if (action === 'delete') {
+      const values = await ask({ title: `Delete ${model.label}?`, text: `Frees ${fmtBytes(model.bytes)}. You can download it again later.`, ok: 'Delete', danger: true });
+      if (!values) return;
+    }
+    const result = await attempt(() => post('/api/models/' + action, { id: model.id }), action === 'delete' ? 'Could not delete the model' : 'Could not start the download');
+    if (result) loadModels();
+  }
+
+  async function useModel(model, role) {
+    const result = await attempt(() => post('/api/models/use', { id: model.id, role }), 'Could not change the model');
+    if (result) {
+      toast(`${model.label} is now the ${role === 'live' ? 'live' : 'final-pass'} model`);
+      loadModels();
+    }
+  }
+
+  async function loadSettings() {
+    const [body] = await Promise.all([attempt(() => api('/api/settings'), 'Could not load the settings'), modelCatalog()]);
+    if (!body) return;
+    state.settingValues = body.values;
+    state.settingSchema = body.schema;
+    const form = $('settingsForm');
+    form.replaceChildren();
+    $('settingsSaved').textContent = '';
+    for (const section of body.schema) {
+      const fieldset = el('fieldset', {}, el('legend', { text: section.title }));
+      for (const field of section.fields) {
+        const value = body.values[field.key];
+        let input;
+        if (field.type === 'bool') {
+          input = el('input', { type: 'checkbox', name: field.key });
+          input.checked = Boolean(value);
+        } else if (field.type === 'select' || field.type === 'model') {
+          const options = field.type === 'model' ? modelOptions(field.role, { optional: field.optional, current: value }) : field.options;
+          input = el('select', { name: field.key }, options.map((option) => el('option', { value: option.value, text: option.label })));
+          input.value = value === undefined || value === null ? '' : value;
+        } else if (field.type === 'number') {
+          input = el('input', { type: 'number', name: field.key, min: field.min, max: field.max, step: field.step });
+          input.value = value === undefined ? '' : value;
+        } else if (field.type === 'textarea') {
+          input = el('textarea', { name: field.key, rows: 6, spellcheck: 'false' });
+          input.value = value || '';
+        } else {
+          input = el('input', { type: 'text', name: field.key, maxlength: field.max });
+          input.value = value || '';
+        }
+        const row = el('div', { class: 'field' + (field.type === 'textarea' ? ' wide' : '') }, [
+          el('label', { for: 'setting-' + field.key, text: field.label }), input,
+          field.help ? el('div', { class: 'help', text: field.help }) : null
+        ]);
+        input.id = 'setting-' + field.key;
+        input.addEventListener('input', () => row.classList.toggle('changed', String(readField(field, input)) !== String(value)));
+        input.addEventListener('change', () => row.classList.toggle('changed', String(readField(field, input)) !== String(value)));
+        fieldset.append(row);
+      }
+      form.append(fieldset);
+    }
+  }
+
+  function readField(field, input) {
+    if (field.type === 'bool') return input.checked;
+    if (field.type === 'number') return input.value === '' ? '' : Number(input.value);
+    return input.value;
+  }
+
+  async function saveSettings() {
+    const form = $('settingsForm');
+    const patch = {};
+    for (const section of state.settingSchema || []) {
+      for (const field of section.fields) {
+        const input = form.elements[field.key];
+        if (!input) continue;
+        const value = readField(field, input);
+        const before = state.settingValues[field.key];
+        if (String(value) !== String(before === undefined || before === null ? '' : before)) patch[field.key] = value;
+      }
+    }
+    if (!Object.keys(patch).length) {
+      $('settingsSaved').textContent = 'Nothing changed.';
+      return;
+    }
+    const result = await attempt(() => post('/api/settings', { patch }), 'Not saved');
+    if (!result) return;
+    await loadSettings();
+    $('settingsSaved').textContent = `Saved ${Object.keys(patch).length} change${Object.keys(patch).length === 1 ? '' : 's'}.`;
+  }
+
   // ── Live updates ──
 
   function connectEvents() {
@@ -1360,6 +1618,30 @@
       }, 400);
     };
     source.addEventListener('library', refreshSoon);
+    // Changed in the app or another tab: show the new values (a settings form
+    // with unsaved edits is left alone).
+    source.addEventListener('settings', () => {
+      if (state.page === 'profiles') loadProfiles();
+      if (state.page === 'models') loadModels();
+      if (state.page === 'settings' && !document.querySelector('.settings-form .changed')) loadSettings();
+    });
+    source.addEventListener('model-progress', (event) => {
+      const data = JSON.parse(event.data);
+      if (state.page !== 'models') return;
+      if (data.state === 'downloading') {
+        const model = (state.models || []).find((entry) => entry.id === data.id);
+        const row = document.querySelector(`.model[data-id="${CSS.escape(data.id)}"]`);
+        if (model && row) {
+          model.downloading = true;
+          model.progress = data.progress;
+          row.replaceWith(modelRow(model));
+        }
+      } else {
+        if (data.state === 'failed') toast('Download failed: ' + data.error);
+        if (data.state === 'done') toast('Model downloaded');
+        loadModels();
+      }
+    });
     let lastTimer = null;
     source.addEventListener('final-pass', (event) => {
       const data = JSON.parse(event.data);
@@ -1437,7 +1719,17 @@
       $('correctionsSaved').textContent = 'Saved.';
     });
     $('globalCorrectionsBtn').addEventListener('click', globalCorrections);
+    document.querySelectorAll('.page-link').forEach((link) => link.addEventListener('click', () => showPage(link.dataset.page)));
+    $('settingsSave').addEventListener('click', saveSettings);
+    $('settingsForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveSettings();
+    });
+    $('search').addEventListener('focus', () => {
+      if (state.page && state.page !== 'library') showPage('library');
+    });
     $('storageBtn').addEventListener('click', () => {
+      if (state.page && state.page !== 'library') showPage('library');
       state.view = 'storage';
       renderFolders();
       renderList();

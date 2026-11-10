@@ -13,6 +13,12 @@
       <label class="search">
         <input type="search" id="search" placeholder="Search all transcripts  ( / )" autocomplete="off" />
       </label>
+      <nav class="pages" aria-label="Sections">
+        <button class="page-link active" data-page="library">Library</button>
+        <button class="page-link" data-page="profiles">Profiles</button>
+        <button class="page-link" data-page="models">Models</button>
+        <button class="page-link" data-page="settings">Settings</button>
+      </nav>
       <nav id="folders" class="folders" aria-label="Folders"></nav>
       <div class="sidebar-foot">
         <button class="link" id="importBtn">Import a recording…</button>
@@ -55,6 +61,25 @@
       <div id="queue" class="queue" hidden></div>
       <ul id="meetings" class="meetings"></ul>
       <p id="emptyList" class="empty" hidden>No meetings here yet.</p>
+    </section>
+
+    <section class="page-pane" id="pagePane" hidden>
+      <div id="page-profiles" class="app-page" hidden>
+        <h1>Profiles</h1>
+        <p class="muted">A profile is a set of models, language and recording options you pick with one click. The active one is what the next recording uses; editing it changes your settings too.</p>
+        <div id="profileCards" class="cards"></div>
+      </div>
+      <div id="page-models" class="app-page" hidden>
+        <h1>Models</h1>
+        <p class="muted">Speech models on this computer. The time is how long the final pass takes for one hour of meeting, learned from your own meetings where possible.</p>
+        <div id="modelList"></div>
+      </div>
+      <div id="page-settings" class="app-page" hidden>
+        <h1>Settings</h1>
+        <p class="muted">The same settings as in the app. Audio devices, the Python environment and the folder meetings are saved to can only be changed in the app.</p>
+        <form id="settingsForm" class="settings-form"></form>
+        <div class="settings-save"><button class="btn primary" id="settingsSave">Save changes</button> <span id="settingsSaved" class="muted"></span></div>
+      </div>
     </section>
 
     <main class="detail" id="detail">
