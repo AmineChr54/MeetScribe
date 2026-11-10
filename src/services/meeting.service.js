@@ -3,6 +3,8 @@ const path = require('path');
 const EventEmitter = require('events');
 const settingsStore = require('../core/settings.store');
 const corrections = require('./corrections');
+const libraryService = require('./library.service');
+const glossaries = require('../core/glossaries');
 const { meetingFolderName } = require('../core/profiles');
 const logger = require('../core/logger').createServiceLogger('MEETING');
 
@@ -201,18 +203,17 @@ class MeetingService extends EventEmitter {
    * point of having a per-project glossary at all.
    */
   _snapshotGlossary() {
-    const glossary = String(settingsStore.get('glossary') || '').trim();
-    const header = [
-      '# Glossary for this meeting: names, products, file names, jargon.',
-      '# One term per line, or several separated by commas.',
-      '# Lines starting with "#" are notes and are ignored.',
-      '# A line starting with ">" is prose context handed to the model, e.g.',
-      '#   > Ein Meeting ueber die Acme-Migration.',
-      '# Edit this file and re-run the final pass to re-transcribe with it.',
-      ''
-    ].join('\r\n');
+    // Project glossaries picked in Settings (or by the active profile) first,
+    // then the free glossary text.
+    let chosen = [];
     try {
-      fs.writeFileSync(path.join(this.folder, 'glossary.txt'), header + glossary + '\r\n', 'utf8');
+      chosen = libraryService.readProjectGlossaries(settingsStore.get('glossarySet'));
+    } catch (error) {
+      logger.warn('Could not read the project glossaries', { error: error.message });
+    }
+    const body = glossaries.compose(chosen, settingsStore.get('glossary'));
+    try {
+      fs.writeFileSync(path.join(this.folder, 'glossary.txt'), glossaries.meetingFile(body).replace(/\n/g, '\r\n'), 'utf8');
     } catch (error) {
       logger.warn('Could not write glossary.txt', { error: error.message });
     }

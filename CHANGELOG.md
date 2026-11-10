@@ -11,13 +11,27 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Setting to turn the live transcript off: the audio is still archived and the final pass writes the transcript.
 - Tunisian large-v3 (`medyas/FarukSTT`), converted to CTranslate2 on download; German tiny and small.en live models.
 - Downloaded models are grouped by purpose; Settings sections collapse and remember their state.
+- Meeting library in the browser (overlay → Library, or Settings → Open Manager): browse meetings by folder and tag, search every transcript, and play the archived audio in sync with the transcript (speed, solo one side, skip silence, loop a line, keyboard shortcuts). Screenshots and markers sit in the timeline. Served only on 127.0.0.1 while a tab is open, behind a one-time token.
+- In the library: give meetings a title, notes, participants and tags; rename, move and organise them into folders (real folders on disk, the date stays in the name); fix transcript text and speakers, merge or delete lines, add markers; edit a meeting's glossary and corrections (select a word to add a correction); export as Markdown, text, SRT or text for an LLM, or copy it; delete meetings or only their audio to the Recycle Bin, with a storage view to clean up old audio. Meetings that are recording or being transcribed are left alone.
+- Re-run the final pass from the library with another model, language, mode or cross-check model, for one meeting or a selection; the queue shows progress and passes can be cancelled, reordered or removed. Per-run choices survive a restart and never change your settings.
+- Import a recording (mp3, m4a, wav, flac, ogg, webm) into the library as a new meeting and transcribe it with the final pass.
+- Profiles, models and settings in the library too: switch, edit or reset any profile (not only the active one), download and delete models with live progress and pick the live and final model, and change the same settings as in the app. The Python environment, the transcript folder and audio devices stay app-only.
 - Optional speaker labels on the microphone (Settings → Audio, beta): record a short voice sample once, then lines are labelled "You" or "Other 1", "Other 2"… using local speaker embeddings (sherpa-onnx, ~0.04x realtime on one core). Live transcript only (the final pass keeps the stream label). Off by default; only a numeric voiceprint is stored, with a Delete button.
+- A new look for the library: the app's colours and logo, icons on every action (delete is red, with a menu for "audio only" or "whole meeting"), a folder tree with nested folders that collapse.
+- The library opens on an **Inbox** of meetings not yet filed; drag meetings (or a whole selection) onto a folder, drag folders into each other, and drop an audio file anywhere to import it. Search still looks in every folder.
+- Project glossaries: one named glossary per project (the Glossaries page, stored in `.glossaries` in the transcript folder). A meeting can use several or none (its Glossary tab, or the re-run dialog), and a profile picks the ones new recordings start with.
+- Your own profiles: save the current settings as a profile, duplicate any profile, rename it, give it a flag, delete it. "No profile" replaces "My settings" and stands for the multilingual defaults.
+- Models come in two lists, live and final pass. German small (`mkenfenheuer/whisper-small-cv11-german-ct2`) for live German. Search Hugging Face from the Models page and add any Whisper model for live or final; Transformers models are converted on download.
+- Library-only mode: the library's server without the overlay. Start it from the "Open MeetScribe Library" shortcut MeetScribe puts in the transcript folder, or with **Library only** on the overlay; start MeetScribe again (or **Open MeetScribe** in the library) to bring the overlay back. A green dot in the library shows the server is answering.
 
 ### Fixed
 
+- The WAV header repair before a final pass only touches files in the layout the recorder writes; other WAVs were corrupted by it.
 - Settings opens under the banner instead of covering it, and the transcript and settings panels no longer show at the same time.
 - Picking a profile no longer empties the glossary; a profile only changes it once it has one of its own.
 - Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
+- Pressing Enter in a library dialog (new folder, rename, tag) cancelled it instead of confirming.
+- The collapse arrows in Settings showed as "B8" / "BE".
 
 ## [1.4.0] - 2026-10-23
 

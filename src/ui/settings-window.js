@@ -58,10 +58,8 @@ const FIELDS = {
 const MODEL_SETTINGS = ['whisperModel', 'offlineModel', 'offlineDiffModel', 'offlineMode', 'offlineCpuThreads'];
 
 const MODEL_GROUPS = [
-  ['live', 'Live models'],
-  ['final', 'Final-pass models'],
-  ['finetune', 'Language fine-tunes'],
-  ['custom', 'Custom']
+  ['live', 'For the live transcript'],
+  ['final', 'For the final pass']
 ];
 
 // localStorage can be blocked or empty; the window must work without it.
@@ -83,30 +81,7 @@ function formatSize(bytes) {
   return bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.round(bytes / 1e6) + ' MB';
 }
 
-// Inline SVG: Windows has no flag emoji, it would draw the letters "US" / "DE".
-function starPoints(cx, cy, outer, inner) {
-  const points = [];
-  for (let i = 0; i < 10; i++) {
-    const radius = i % 2 === 0 ? outer : inner;
-    const angle = (Math.PI / 5) * i - Math.PI / 2;
-    points.push((cx + radius * Math.cos(angle)).toFixed(2) + ',' + (cy + radius * Math.sin(angle)).toFixed(2));
-  }
-  return points.join(' ');
-}
-
-const FLAGS = {
-  us: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#fff"/>' +
-    [0, 1, 2, 3, 4, 5, 6].map((i) => '<rect y="' + (i * 2 * 20 / 13).toFixed(2) + '" width="30" height="' + (20 / 13).toFixed(2) + '" fill="#b22234"/>').join('') +
-    '<rect width="12" height="10.77" fill="#3c3b6e"/></svg>',
-  de: '<svg viewBox="0 0 30 20"><rect width="30" height="6.67" fill="#000"/><rect y="6.67" width="30" height="6.67" fill="#dd0000"/><rect y="13.33" width="30" height="6.67" fill="#ffce00"/></svg>',
-  tn: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#e70013"/><circle cx="15" cy="10" r="5.6" fill="#fff"/>' +
-    '<circle cx="14.1" cy="10" r="4.2" fill="#e70013"/><circle cx="15.5" cy="10" r="3.4" fill="#fff"/>' +
-    '<circle cx="16.2" cy="10" r="2.7" fill="#e70013"/><polygon points="' + starPoints(16.1, 10, 2.1, 0.9) + '" fill="#fff"/>' +
-    '<polygon points="' + starPoints(16.1, 10, 1.6, 0.7) + '" fill="#e70013"/></svg>',
-  custom: '<svg viewBox="0 0 30 20"><rect width="30" height="20" fill="#3a3a44"/><rect x="5" y="5" width="20" height="2" rx="1" fill="#9aa"/>' +
-    '<rect x="5" y="9" width="20" height="2" rx="1" fill="#9aa"/><rect x="5" y="13" width="20" height="2" rx="1" fill="#9aa"/>' +
-    '<circle cx="20" cy="6" r="2.4" fill="#6fb4ff"/><circle cx="10" cy="10" r="2.4" fill="#6fb4ff"/><circle cx="17" cy="14" r="2.4" fill="#6fb4ff"/></svg>'
-};
+// Flags come from src/ui/flags.js (window.MeetScribeFlags).
 
 class SettingsWindow {
   constructor() {
@@ -177,6 +152,10 @@ class SettingsWindow {
 
     document.getElementById('openFolder').addEventListener('click', () => {
       window.electronAPI.openMeetingFolder();
+    });
+
+    document.getElementById('openManager').addEventListener('click', () => {
+      window.electronAPI.openManager();
     });
 
     document.getElementById('browsePython').addEventListener('click', async () => {
@@ -335,7 +314,7 @@ class SettingsWindow {
       card.title = profile.summary;
       const flag = document.createElement('span');
       flag.className = 'flag';
-      flag.innerHTML = FLAGS[profile.flag] || FLAGS.custom;
+      flag.innerHTML = window.MeetScribeFlags.svg(profile.flag);
       const name = document.createElement('span');
       name.className = 'p-name';
       name.textContent = profile.label;
@@ -348,10 +327,10 @@ class SettingsWindow {
     }
     const reset = document.getElementById('resetProfile');
     const current = profiles.find((profile) => profile.id === active);
-    reset.hidden = !(current && current.edited && active !== 'custom');
-    document.getElementById('profileHint').textContent = current
-      ? 'Changes you make are remembered by this profile.'
-      : 'Pick a profile to preselect everything below.';
+    reset.hidden = !(current && current.kind === 'builtin' && current.edited);
+    document.getElementById('profileHint').textContent = !current || current.kind === 'none'
+      ? 'No profile: the default multilingual settings. Change anything; save it as a profile in the Library.'
+      : 'Changes you make are remembered by this profile.';
   }
 
   async selectProfile(id) {
@@ -366,6 +345,41 @@ class SettingsWindow {
     const settings = await window.electronAPI.getSettings();
     this.apply(settings);
     this.refreshDevices();
+    this.loadGlossaries();
+  }
+
+  /** Project glossaries (made in the Library) as chips; ticked ones go into new meetings. */
+  async loadGlossaries() {
+    try {
+      this.glossaryNames = (await window.electronAPI.listGlossaries()).map((glossary) => glossary.name);
+    } catch (_) {
+      this.glossaryNames = [];
+    }
+    this.renderGlossarySet();
+  }
+
+  renderGlossarySet() {
+    const holder = document.getElementById('glossarySet');
+    if (!holder || !this.glossaryNames || !this.glossaryNames.length) return;
+    const chosen = new Set(((this.settings && this.settings.glossarySet) || []).map((name) => name.toLowerCase()));
+    holder.textContent = '';
+    for (const name of this.glossaryNames) {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = chosen.has(name.toLowerCase());
+      const label = document.createElement('label');
+      label.className = box.checked ? 'on' : '';
+      label.append(box, document.createTextNode(name));
+      box.addEventListener('change', () => {
+        label.className = box.checked ? 'on' : '';
+        const set = [...holder.querySelectorAll('label')]
+          .filter((item) => item.querySelector('input').checked)
+          .map((item) => item.textContent);
+        this.settings.glossarySet = set;
+        this.save({ glossarySet: set });
+      });
+      holder.appendChild(label);
+    }
   }
 
   readField(id) {
@@ -400,6 +414,7 @@ class SettingsWindow {
     this.updateEchoLabel();
     this.updateConfidenceLabel();
     this.applyCustomModel(settings);
+    this.renderGlossarySet();
     this.renderWhisperStatus(settings.whisper);
     this.populateDevices(settings.audioInputs || []);
 
@@ -543,7 +558,7 @@ class SettingsWindow {
     const have = rows.filter((row) => row.downloaded);
     const rest = rows.filter((row) => !row.downloaded);
     for (const [category, title] of MODEL_GROUPS) {
-      const group = have.filter((row) => (row.custom ? 'custom' : row.category || 'final') === category);
+      const group = have.filter((row) => (row.category === 'live' ? 'live' : 'final') === category);
       if (!group.length) continue;
       const heading = document.createElement('div');
       heading.className = 'model-group';

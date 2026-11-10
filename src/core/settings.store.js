@@ -38,6 +38,7 @@ class SettingsStore {
       echoSimilarity: config.get('audio.echoSimilarity'),
 
       glossary: config.get('whisper.glossary'),
+      glossarySet: config.get('whisper.glossarySet'),
 
       archiveAudio: config.get('offline.archiveAudio'),
       archiveFormat: config.get('offline.archiveFormat'),
@@ -76,6 +77,8 @@ class SettingsStore {
       // profile's stored edits.
       activeProfile: '',
       profiles: {},
+      // The user's own profiles: [{ id, label, flag, values }].
+      myProfiles: [],
       showTranscriptOnRecord: true,
       folderNamePrefix: '',
       windowGap: config.get('ui.windowGap'),

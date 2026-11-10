@@ -107,6 +107,9 @@ class ConfigManager {
         // ">" a line of prose context. Only the first ~96 tokens of terms are
         // used: a longer list gets read out as speech.
         glossary: '',
+        // Project glossaries (by name, from <transcriptRoot>/.glossaries) that
+        // new meetings start with, ahead of the glossary text above.
+        glossarySet: [],
         device: 'auto',
         computeType: 'auto',
         cpuThreads: 0,
