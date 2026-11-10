@@ -3,13 +3,23 @@ const assert = require('node:assert/strict');
 
 const profiles = require('../src/core/profiles');
 
-test('built-in profiles cover every profile key and carry no glossary', () => {
+test('built-in profiles cover every profile key except the glossary', () => {
   for (const profile of profiles.BUILTIN) {
     for (const key of profiles.PROFILE_KEYS) {
+      if (key === 'glossary') continue;
       assert.ok(key in profile.values, `${profile.id} is missing ${key}`);
     }
-    assert.equal(profile.values.glossary, '');
+    assert.equal('glossary' in profile.values, false);
   }
+});
+
+test('picking a profile keeps the current glossary unless the profile stored one', () => {
+  const current = { activeProfile: '', whisperModel: 'medium', glossary: 'Acme, AcmeTrakr' };
+  const untouched = profiles.select('english', current, {}).patch;
+  assert.equal('glossary' in untouched, false);
+
+  const stored = { german: { glossary: 'Zorblin' } };
+  assert.equal(profiles.select('german', current, stored).patch.glossary, 'Zorblin');
 });
 
 test('tunisian profile turns live transcription off and uses the final pass', () => {

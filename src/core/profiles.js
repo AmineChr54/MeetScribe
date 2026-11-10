@@ -7,7 +7,8 @@
  * values. Nothing in this file touches Electron or the disk.
  *
  * Built-ins hold no glossary: a glossary is the user's own content and only
- * ever lives in their settings.
+ * ever lives in their settings. So picking a profile leaves the current
+ * glossary alone unless that profile has stored one of its own.
  */
 
 const PROFILE_KEYS = [
@@ -28,8 +29,7 @@ const BASE = {
   liveTranscription: true,
   offlinePassEnabled: true,
   archiveAudio: true,
-  showTranscriptOnRecord: true,
-  glossary: ''
+  showTranscriptOnRecord: true
 };
 
 const BUILTIN = [
