@@ -6,6 +6,8 @@ const libraryService = require('./library.service');
 const libraryEdit = require('./library-edit.service');
 const security = require('../core/manager-http');
 const library = require('../core/library');
+const settingsSchema = require('../core/settings-schema');
+const profiles = require('../core/profiles');
 const logger = require('../core/logger').createServiceLogger('MANAGER');
 
 // The listener closes itself once no manager tab has been open for this long.
@@ -219,6 +221,15 @@ class ManagerServer extends EventEmitter {
           return this._json(res, 200, { ok: true, models: this.api.models ? this.api.models() : [] });
         case '/api/queue':
           return this._json(res, 200, { ok: true, ...this._queue() });
+        case '/api/settings':
+          return this._json(res, 200, {
+            ok: true,
+            values: settingsSchema.visibleValues(this.api.settings ? this.api.settings() : {}),
+            schema: settingsSchema.describe(),
+            profileKeys: profiles.PROFILE_KEYS
+          });
+        case '/api/profiles':
+          return this._json(res, 200, { ok: true, ...(this.api.profiles ? this.api.profiles() : { profiles: [] }) });
         case '/api/status':
           return this._json(res, 200, { ok: true, ...(this.api.status ? this.api.status() : {}) });
         default:
@@ -314,12 +325,43 @@ class ManagerServer extends EventEmitter {
         if (!found || found.running || !need('dequeue')(found.folder)) throw new Error('That pass is not waiting in the queue');
         return {};
       },
+      settings: (body) => {
+        const { patch, errors } = settingsSchema.validatePatch(body.patch);
+        if (errors.length) throw new Error(errors.join('; '));
+        if (!Object.keys(patch).length) return {};
+        return this._unwrap(need('saveSettings')(patch), () => ({}));
+      },
+      'profiles/select': (body) => this._unwrap(need('selectProfile')(String(body.id || '')), (result) => ({ active: result.active })),
+      'profiles/reset': (body) => this._unwrap(need('resetProfile')(String(body.id || '')), () => ({})),
+      'profiles/update': (body) => {
+        // Same checks as a settings change, limited to what a profile holds.
+        const values = {};
+        for (const key of profiles.PROFILE_KEYS) if (body.values && body.values[key] !== undefined) values[key] = body.values[key];
+        const { patch, errors } = settingsSchema.validatePatch(values);
+        if (errors.length) throw new Error(errors.join('; '));
+        return this._unwrap(need('updateProfile')(String(body.id || ''), patch), () => ({}));
+      },
+      'models/download': (body) => this._unwrap(need('downloadModel')(String(body.id || '')), () => ({})),
+      'models/delete': (body) => this._unwrap(need('deleteModel')(String(body.id || '')), (result) => ({ freed: result.freed || 0 })),
+      'models/use': (body) => {
+        const key = { live: 'whisperModel', final: 'offlineModel', diff: 'offlineDiffModel' }[body.role];
+        if (!key) throw new Error('Pick live, final or cross-check');
+        const { patch, errors } = settingsSchema.validatePatch({ [key]: body.id === null ? '' : body.id });
+        if (errors.length) throw new Error(errors.join('; '));
+        return this._unwrap(need('saveSettings')(patch), () => ({}));
+      },
       'queue/move': (body) => {
         const found = this._queuedFolder(body.id);
         if (!found || found.running || !need('reorder')(found.folder, body.delta)) throw new Error('That pass is not waiting in the queue');
         return {};
       }
     };
+  }
+
+  /** main.js answers { ok: false, error } instead of throwing; turn that into a refusal. */
+  _unwrap(result, pick) {
+    if (result && result.ok === false) throw new Error(result.error || 'Refused');
+    return pick(result || {});
   }
 
   /**

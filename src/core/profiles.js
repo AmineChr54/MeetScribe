@@ -147,6 +147,15 @@ function recordEdit(activeId, patch, settings, stored = {}) {
   return { ...stored, [activeId]: { ...pick(stored[activeId]), ...pick(settings) } };
 }
 
+/**
+ * Change a profile's values directly (the browser manager's profile editor),
+ * whether or not it is the active one. Only profile keys are kept.
+ */
+function update(id, values, stored = {}) {
+  if (!getProfile(id, stored)) throw new Error('Unknown profile: ' + id);
+  return { ...stored, [id]: { ...pick(stored[id]), ...pick(values) } };
+}
+
 /** Back to the built-in values. "My settings" has no built-in, so it is left alone. */
 function reset(id, stored = {}) {
   const profiles = { ...stored };
@@ -178,6 +187,7 @@ module.exports = {
   getProfile,
   select,
   recordEdit,
+  update,
   reset,
   sanitizeFolderPrefix,
   meetingFolderName

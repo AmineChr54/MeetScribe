@@ -15,6 +15,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 - In the library: give meetings a title, notes, participants and tags; rename, move and organise them into folders (real folders on disk, the date stays in the name); fix transcript text and speakers, merge or delete lines, add markers; edit a meeting's glossary and corrections (select a word to add a correction); export as Markdown, text, SRT or text for an LLM, or copy it; delete meetings or only their audio to the Recycle Bin, with a storage view to clean up old audio. Meetings that are recording or being transcribed are left alone.
 - Re-run the final pass from the library with another model, language, mode or cross-check model, for one meeting or a selection; the queue shows progress and passes can be cancelled, reordered or removed. Per-run choices survive a restart and never change your settings.
 - Import a recording (mp3, m4a, wav, flac, ogg, webm) into the library as a new meeting and transcribe it with the final pass.
+- Profiles, models and settings in the library too: switch, edit or reset any profile (not only the active one), download and delete models with live progress and pick the live and final model, and change the same settings as in the app. The Python environment, the transcript folder and audio devices stay app-only.
 
 ### Fixed
 
