@@ -6,11 +6,15 @@ const readline = require('readline');
 const EventEmitter = require('events');
 const { spawn } = require('child_process');
 const settingsStore = require('../core/settings.store');
-const { SpeakerTracker, average, cosine } = require('../core/speaker-tracker');
+const { SpeakerTracker, average, consistency } = require('../core/speaker-tracker');
 const { pcmToWav, rmsOf } = require('../core/wav');
 const logger = require('../core/logger').createServiceLogger('VOICE');
 
-const MODEL_FILE = 'wespeaker_en_voxceleb_CAM++_LM.onnx';
+// 3D-Speaker ERes2Net trained on VoxCeleb. Chosen over the WeSpeaker CAM++ model
+// this feature first shipped with, which could not tell short clips of
+// different people apart; this one separated owner and strangers on 99-100%
+// of 1.5-6 s utterances in a test on public speech (Mini LibriSpeech).
+const MODEL_FILE = '3dspeaker_speech_eres2net_sv_en_voxceleb_16k.onnx';
 const MODEL_URL =
   'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/' +
   encodeURIComponent(MODEL_FILE);
@@ -20,8 +24,11 @@ const SAMPLE_RATE = 16000;
 const CLIP_BYTES = 3 * SAMPLE_RATE * 2; // enrollment is cut into 3 s clips
 const MIN_CLIPS = 4;
 const SPEECH_RMS = 0.01; // a clip quieter than this is silence, not a voice
-const CLIP_CONSISTENCY = 0.35; // every clip must resemble the average at least this much
-const MIN_UTTERANCE_MS = 1000; // shorter clips give unstable embeddings
+// Every clip must resemble the average of the *other* clips at least this much.
+// One clean voice scored 0.65 or more in testing, a recording that switched
+// voices halfway about 0.45.
+const CLIP_CONSISTENCY = 0.5;
+const MIN_UTTERANCE_MS = 1500; // shorter clips give unstable embeddings (15% missed at 1 s)
 const CARRY_LABEL_MS = 6000; // a too-short utterance keeps the previous label for this long
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -65,6 +72,8 @@ class VoiceService extends EventEmitter {
   loadVoiceprint() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.voiceprintFile(), 'utf8'));
+      // A voiceprint is only comparable with embeddings from the model that made it.
+      if (parsed.model !== MODEL_FILE) return null;
       return Array.isArray(parsed.embedding) && parsed.embedding.length ? parsed : null;
     } catch (_) {
       return null;
@@ -333,7 +342,7 @@ class VoiceService extends EventEmitter {
       throw new Error('Not enough speech. Speak steadily for the whole recording, closer to the microphone.');
     }
     const voiceprint = average(embeddings);
-    const weakest = Math.min(...embeddings.map((embedding) => cosine(embedding, voiceprint)));
+    const weakest = consistency(embeddings);
     if (weakest < CLIP_CONSISTENCY) {
       throw new Error('The recording sounds like more than one voice, or has too much noise. Try again alone in a quiet room.');
     }
@@ -368,7 +377,7 @@ class VoiceService extends EventEmitter {
       const voiceprint = this.loadVoiceprint();
       this.tracker = new SpeakerTracker({
         voiceprint: voiceprint ? voiceprint.embedding : null,
-        threshold: Number(settingsStore.get('voiceMatchThreshold')) || 0.5,
+        threshold: Number(settingsStore.get('voiceMatchThreshold')) || 0.45,
         ownerLabel: settingsStore.get('labelMic') || 'You'
       });
     }

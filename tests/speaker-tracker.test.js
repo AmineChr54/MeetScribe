@@ -48,3 +48,12 @@ test('a stricter threshold splits a voice; custom labels are used', () => {
 test('normalize handles a zero vector without NaN', () => {
   assert.deepEqual(normalize([0, 0]), [0, 0]);
 });
+
+test('consistency leaves each clip out, so a recording of two voices fails', () => {
+  const { consistency } = require('../src/core/speaker-tracker');
+  const oneVoice = [near(voiceA, 0.02), near(voiceA, 0.03), near(voiceA, 0.01), near(voiceA, 0.04)];
+  const twoVoices = [voiceA, near(voiceA, 0.02), voiceB, near(voiceB, 0.02)];
+  assert.ok(consistency(oneVoice) > 0.9);
+  assert.ok(consistency(twoVoices) < 0.6);
+  assert.equal(consistency([voiceA]), 0);
+});

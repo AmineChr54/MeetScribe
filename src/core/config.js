@@ -114,7 +114,7 @@ class ConfigManager {
         workerCount: 1,
         // Optional "You / Other n" labels from speaker embeddings (off by default).
         voiceLabels: false,
-        voiceMatchThreshold: 0.5,
+        voiceMatchThreshold: 0.45,
         idleUnloadMs: 60000,
         pythonPath: '',
 

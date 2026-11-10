@@ -49,6 +49,21 @@ function average(embeddings) {
   return normalize(sum);
 }
 
+/**
+ * How alike the enrollment clips are: the lowest cosine of any clip against the
+ * average of all the others. Leaving the clip out matters: against an average
+ * that includes it, every clip looks similar, even in a recording of two people.
+ */
+function consistency(embeddings) {
+  if (embeddings.length < 2) return 0;
+  let weakest = 1;
+  embeddings.forEach((embedding, index) => {
+    const rest = average(embeddings.filter((_, other) => other !== index));
+    weakest = Math.min(weakest, cosine(embedding, rest));
+  });
+  return weakest;
+}
+
 class SpeakerTracker {
   /**
    * @param {object}   options
@@ -107,4 +122,4 @@ class SpeakerTracker {
   }
 }
 
-module.exports = { SpeakerTracker, cosine, normalize, average };
+module.exports = { SpeakerTracker, cosine, normalize, average, consistency };
