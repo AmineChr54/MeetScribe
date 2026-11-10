@@ -74,8 +74,9 @@ function parseLiveTranscript(text, dayStart) {
   let dayOffset = 0;
   let lastClockMs = null;
 
-  for (const raw of String(text || '').split(/\r?\n/)) {
-    const match = LINE_PATTERN.exec(raw.trim());
+  const lines = String(text || '').split(/\r?\n/);
+  for (let line = 0; line < lines.length; line++) {
+    const match = LINE_PATTERN.exec(lines[line].trim());
     if (!match) continue;
     const [, hh, mm, ss, rest] = match;
     const clockMs = ((Number(hh) * 60 + Number(mm)) * 60 + Number(ss)) * 1000;
@@ -86,12 +87,12 @@ function parseLiveTranscript(text, dayStart) {
 
     const event = /^---\s+(screenshot|mark)(?::\s*(.*?))?\s+---$/.exec(rest);
     if (event) {
-      entries.push({ kind: event[1] === 'mark' ? 'marker' : 'screenshot', startedAt, endedAt: startedAt, clock, text: event[2] || '' });
+      entries.push({ kind: event[1] === 'mark' ? 'marker' : 'screenshot', startedAt, endedAt: startedAt, clock, text: event[2] || '', line });
       continue;
     }
     const colon = rest.indexOf(': ');
     if (colon <= 0) continue;
-    entries.push({ kind: 'speech', startedAt, endedAt: null, clock, label: rest.slice(0, colon), text: rest.slice(colon + 2) });
+    entries.push({ kind: 'speech', startedAt, endedAt: null, clock, label: rest.slice(0, colon), text: rest.slice(colon + 2), line });
   }
 
   // A live line has no end time: it lasts until the next line, at most 12 s
@@ -159,7 +160,107 @@ function searchText(text, terms, { limit = 3, radius = 60 } = {}) {
   return { hits, snippets };
 }
 
+// ── Names ──
+
+/**
+ * The folder name for a renamed meeting: the user's name, then the meeting's
+ * original date-time stamp, so folders keep sorting by date in Explorer.
+ * Characters Windows refuses in a folder name are dropped.
+ */
+function renamedFolder(name, currentFolderName, startedAt) {
+  const clean = cleanName(name);
+  const parsed = parseFolderName(currentFolderName);
+  const stamp = parsed ? parsed.stamp : stampOf(startedAt);
+  return clean ? `${clean}_${stamp}` : stamp;
+}
+
+/** A name that is safe as a Windows folder name, or '' when nothing usable is left. */
+function cleanName(value, max = 80) {
+  return String(value || '')
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^[.\s]+|[.\s]+$/g, '')
+    .slice(0, max)
+    .replace(/[.\s]+$/g, '');
+}
+
+/** Tags as typed ("#acme, Review") to a clean, unique list. */
+function cleanTags(tags) {
+  const list = Array.isArray(tags) ? tags : String(tags || '').split(/[,\n]/);
+  const out = [];
+  for (const tag of list) {
+    const clean = String(tag).trim().replace(/^#+/, '').replace(/\s+/g, '-').slice(0, 40);
+    if (clean && !out.some((existing) => existing.toLowerCase() === clean.toLowerCase())) out.push(clean);
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+// ── Export ──
+
+const clockText = (ms) => {
+  const date = new Date(ms);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+function entryText(entry, markup) {
+  const text = entry.marked && markup ? entry.marked : entry.text;
+  return markup ? String(text || '') : stripMarkup(text);
+}
+
+/** "[HH:MM:SS] Label: text", one line per spoken line; screenshots and markers inline. */
+function toPlainText(entries, { markup = false } = {}) {
+  const lines = [];
+  for (const entry of entries || []) {
+    const stamp = `[${entry.clock || clockText(entry.startedAt)}]`;
+    if (entry.kind === 'speech') lines.push(`${stamp} ${entry.label}: ${entryText(entry, markup)}`);
+    else if (entry.kind === 'marker') lines.push(`${stamp} --- mark${entry.text ? ': ' + entry.text : ''} ---`);
+    else if (entry.kind === 'screenshot') lines.push(`${stamp} --- screenshot: ${entry.text} ---`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+const srtTime = (ms) => {
+  const value = Math.max(0, Math.round(ms));
+  const h = Math.floor(value / 3600000);
+  const m = Math.floor((value % 3600000) / 60000);
+  const s = Math.floor((value % 60000) / 1000);
+  return `${pad(h)}:${pad(m)}:${pad(s)},${String(value % 1000).padStart(3, '0')}`;
+};
+
+/** SubRip subtitles, timed from `base` (the start of the audio). */
+function toSrt(entries, base) {
+  const out = [];
+  let index = 0;
+  for (const entry of entries || []) {
+    if (entry.kind !== 'speech') continue;
+    const start = entry.startedAt - base;
+    const end = Math.max(start + 500, (entry.endedAt || entry.startedAt + 2000) - base);
+    out.push(String(++index), `${srtTime(start)} --> ${srtTime(end)}`, `${entry.label}: ${stripMarkup(entry.text)}`, '');
+  }
+  return out.join('\n');
+}
+
+/** A short header that tells an LLM what it is reading, then the plain transcript. */
+function toLlmText(meeting, entries, { markup = false } = {}) {
+  const speakers = [...new Set((entries || []).filter((entry) => entry.kind === 'speech').map((entry) => entry.label))];
+  const head = [
+    `Meeting: ${meeting.title || meeting.name}`,
+    `Date: ${new Date(meeting.startedAt).toISOString().slice(0, 16).replace('T', ' ')}`,
+    speakers.length ? `Speakers: ${speakers.join(', ')}` : '',
+    meeting.participants ? `Participants: ${meeting.participants}` : '',
+    markup ? 'Markup: ~word~ = the speech model was unsure, <a|b> = two models disagreed, {word} = auto-corrected.' : ''
+  ].filter(Boolean);
+  return head.join('\n') + '\n\n' + toPlainText(entries, { markup });
+}
+
 module.exports = {
+  renamedFolder,
+  cleanName,
+  cleanTags,
+  toPlainText,
+  toSrt,
+  toLlmText,
   parseFolderName,
   stampOf,
   resolveInside,
