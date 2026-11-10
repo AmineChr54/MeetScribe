@@ -5,12 +5,14 @@ const EventEmitter = require('events');
 const libraryService = require('./library.service');
 const libraryEdit = require('./library-edit.service');
 const security = require('../core/manager-http');
+const library = require('../core/library');
 const logger = require('../core/logger').createServiceLogger('MANAGER');
 
 // The listener closes itself once no manager tab has been open for this long.
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
 const HEARTBEAT_MS = 25 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024;
+const MAX_IMPORT_BYTES = 4 * 1024 * 1024 * 1024;
 
 // POST /api/<name>: body in, result out. Each one changes something on disk,
 // so every open tab is told to refresh afterwards.
@@ -40,7 +42,8 @@ const PAGE_CSP = [
   "script-src 'self'",
   "style-src 'self'",
   "img-src 'self'",
-  "media-src 'self'",
+  // blob: lets the page read an imported file's length before uploading it.
+  "media-src 'self' blob:",
   "connect-src 'self'",
   "base-uri 'none'",
   "form-action 'none'",
@@ -185,6 +188,7 @@ class ManagerServer extends EventEmitter {
     if (req.method === 'GET' && url.pathname === '/media') return this._media(req, res, url);
     if (req.method === 'GET' && url.pathname === '/api/export') return this._export(res, url);
     if (req.method === 'GET' && url.pathname.startsWith('/api/')) return this._get(res, url);
+    if (req.method === 'POST' && url.pathname === '/api/import') return this._import(req, res, url);
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) return this._post(req, res, url);
     return this._json(res, 404, { ok: false, error: 'Not found' });
   }
@@ -211,6 +215,10 @@ class ManagerServer extends EventEmitter {
           return this._json(res, 200, { ok: true, ...libraryEdit.getGlossary(query.get('id')) });
         case '/api/corrections':
           return this._json(res, 200, { ok: true, ...libraryEdit.getCorrections(query.get('id') || '') });
+        case '/api/models':
+          return this._json(res, 200, { ok: true, models: this.api.models ? this.api.models() : [] });
+        case '/api/queue':
+          return this._json(res, 200, { ok: true, ...this._queue() });
         case '/api/status':
           return this._json(res, 200, { ok: true, ...(this.api.status ? this.api.status() : {}) });
         default:
@@ -223,7 +231,7 @@ class ManagerServer extends EventEmitter {
 
   async _post(req, res, url) {
     const name = url.pathname.slice('/api/'.length);
-    const action = ACTIONS[name];
+    const action = ACTIONS[name] || this._jobActions()[name];
     if (!action) return this._json(res, 404, { ok: false, error: 'Not found' });
     let body;
     try {
@@ -237,6 +245,143 @@ class ManagerServer extends EventEmitter {
       return this._json(res, 200, { ok: true, ...result });
     } catch (error) {
       logger.info('Manager action refused', { action: name, error: error.message });
+      return this._json(res, 400, { ok: false, error: error.message });
+    }
+  }
+
+  // ── Final passes ──
+
+  /** The queue, with library ids for the folders inside the transcript folder. */
+  _queue() {
+    const status = this.api.queue ? this.api.queue() : { jobs: [] };
+    const root = libraryService.root();
+    const describe = (folder, overrides) => {
+      let id = null;
+      try {
+        const rel = library.idOf(root, folder);
+        if (!rel.startsWith('..')) id = rel;
+      } catch (_) { /* outside the library */ }
+      return { id, name: path.basename(folder), overrides: overrides || {} };
+    };
+    return {
+      running: status.running && status.folder ? { ...describe(status.folder, status.overrides), pct: status.pct || 0 } : null,
+      jobs: (status.jobs || []).map((job) => describe(job.folder, job.overrides))
+    };
+  }
+
+  /** The queue's own path for a meeting, compared the way Windows compares paths. */
+  _queuedFolder(id) {
+    const dir = path.resolve(libraryService.meetingDir(id));
+    const same = (folder) => folder && (process.platform === 'win32'
+      ? path.resolve(folder).toLowerCase() === dir.toLowerCase()
+      : path.resolve(folder) === dir);
+    const status = this.api.queue ? this.api.queue() : { jobs: [] };
+    if (status.running && same(status.folder)) return { folder: status.folder, running: true };
+    const job = (status.jobs || []).find((entry) => same(entry.folder));
+    return job ? { folder: job.folder, running: false } : null;
+  }
+
+  _jobActions() {
+    const need = (name) => {
+      if (!this.api[name]) throw new Error('Not available');
+      return this.api[name];
+    };
+    return {
+      rerun: (body) => {
+        const overrides = {};
+        for (const key of ['model', 'diffModel', 'language', 'mode', 'beamSize']) {
+          if (body.overrides && body.overrides[key] !== undefined && body.overrides[key] !== null) overrides[key] = body.overrides[key];
+        }
+        const ids = Array.isArray(body.ids) ? body.ids : [];
+        if (!ids.length) throw new Error('Pick a meeting');
+        const dirs = ids.map((id) => {
+          const dir = libraryService.meetingDir(id);
+          if (!fs.existsSync(path.join(dir, 'audio', 'meta.json'))) throw new Error(`"${path.basename(dir)}" has no archived audio`);
+          if (libraryService._stateOf(dir, libraryService._busy()) === 'recording') throw new Error('That meeting is still recording');
+          return dir;
+        });
+        for (const dir of dirs) need('rerun')(dir, overrides);
+        return { queued: dirs.length };
+      },
+      'queue/cancel': (body) => {
+        const found = this._queuedFolder(body.id);
+        if (!found || !found.running) throw new Error('That pass is not running');
+        need('cancelRunning')();
+        return {};
+      },
+      'queue/remove': (body) => {
+        const found = this._queuedFolder(body.id);
+        if (!found || found.running || !need('dequeue')(found.folder)) throw new Error('That pass is not waiting in the queue');
+        return {};
+      },
+      'queue/move': (body) => {
+        const found = this._queuedFolder(body.id);
+        if (!found || found.running || !need('reorder')(found.folder, body.delta)) throw new Error('That pass is not waiting in the queue');
+        return {};
+      }
+    };
+  }
+
+  /**
+   * An audio file streamed straight to disk as a new meeting. Details come in
+   * the query string because the body is the file itself.
+   */
+  async _import(req, res, url) {
+    const query = url.searchParams;
+    const size = Number(req.headers['content-length']);
+    if (!Number.isFinite(size) || size <= 0) return this._json(res, 411, { ok: false, error: 'Empty upload' });
+    if (size > MAX_IMPORT_BYTES) return this._json(res, 413, { ok: false, error: 'The file is larger than 4 GB' });
+
+    let target;
+    try {
+      target = libraryEdit.beginImport({
+        name: query.get('name'),
+        startedAt: query.get('startedAt'),
+        folder: query.get('folder'),
+        ext: query.get('ext')
+      });
+    } catch (error) {
+      req.resume();
+      return this._json(res, 400, { ok: false, error: error.message });
+    }
+
+    const written = await new Promise((resolve) => {
+      const out = fs.createWriteStream(target.file);
+      let bytes = 0;
+      const fail = (error) => {
+        out.destroy();
+        resolve({ ok: false, error: error.message || String(error) });
+      };
+      req.on('data', (chunk) => {
+        bytes += chunk.length;
+        if (bytes > size) req.destroy(new Error('More data than announced'));
+      });
+      req.on('aborted', () => fail(new Error('The upload was interrupted')));
+      req.on('error', fail);
+      out.on('error', fail);
+      out.on('finish', () => resolve(bytes === size ? { ok: true } : { ok: false, error: 'The upload was incomplete' }));
+      req.pipe(out);
+    });
+    if (!written.ok) {
+      libraryEdit.failImport(target.dir);
+      if (!res.writableEnded && !res.destroyed) return this._json(res, 400, written);
+      return undefined;
+    }
+
+    try {
+      const result = libraryEdit.finishImport({
+        dir: target.dir,
+        file: target.file,
+        name: query.get('name'),
+        startedAt: query.get('startedAt'),
+        durationMs: query.get('durationMs'),
+        label: query.get('label')
+      });
+      if (query.get('transcribe') === '1' && this.api.rerun) this.api.rerun(target.dir, {});
+      this.broadcast('library', { reason: 'import' });
+      return this._json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      libraryEdit.failImport(target.dir);
       return this._json(res, 400, { ok: false, error: error.message });
     }
   }
