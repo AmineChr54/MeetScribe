@@ -253,3 +253,86 @@ button, input, select { font: inherit; color: inherit; }
   .line .who { grid-column: 2; }
   .line .text { grid-column: 1 / -1; }
 }
+
+/* ── Editing (actions, forms, dialogs) ── */
+.btn {
+  background: var(--pane);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { color: #d64545; }
+.btn.ghost { border-color: transparent; background: none; }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.link { border: none; background: none; color: var(--accent); cursor: pointer; padding: 2px 0; display: block; font-size: 12px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
+.actions select { width: auto; padding: 4px 6px; }
+.meeting-head .badges { justify-content: flex-start; margin-top: 6px; }
+
+.folder-row { display: flex; align-items: center; }
+.folder-row .folder { flex: 1; min-width: 0; }
+.folder-row .folder span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-tools { display: none; gap: 2px; padding-right: 4px; }
+.folder-row:hover .folder-tools { display: flex; }
+.icon { border: none; background: none; cursor: pointer; color: var(--muted); padding: 2px 4px; border-radius: 4px; font-size: 12px; }
+.icon:hover { color: var(--text); background: var(--accent-soft); }
+.folder-group { display: flex; justify-content: space-between; align-items: center; }
+
+.meeting { display: grid; grid-template-columns: 20px 1fr; gap: 6px; align-items: start; }
+.meeting .pick { margin-top: 4px; accent-color: var(--accent); }
+.meeting .sizes { color: var(--muted); font-size: 12px; }
+.bulk { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 12px 8px; padding: 8px; border: 1px solid var(--accent); border-radius: 8px; font-size: 13px; }
+.bulk span { flex: 1; min-width: 90px; }
+.storage { margin: 0 12px 8px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+.storage input { width: 64px; display: inline-block; margin: 0 4px; padding: 2px 6px; background: var(--pane); border: 1px solid var(--border); border-radius: 6px; }
+
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+input[type="text"], input[type="number"], textarea {
+  background: var(--pane);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  width: 100%;
+}
+input[type="text"]:focus, textarea:focus { border-color: var(--accent); }
+textarea { resize: vertical; line-height: 1.5; }
+#glossaryText { font-family: ui-monospace, Consolas, monospace; font-size: 13px; margin-bottom: 8px; }
+#tab-glossary h3 { margin: 18px 0 6px; font-size: 14px; }
+.corrections { display: grid; grid-template-columns: 1fr 24px 1fr 28px; gap: 6px; align-items: center; margin-bottom: 8px; max-width: 640px; }
+.corrections .arrow { text-align: center; color: var(--muted); }
+
+.line .line-tools { display: none; gap: 2px; }
+.editing .line { grid-template-columns: 70px 90px 1fr auto; }
+.editing .line:hover .line-tools, .editing .event:hover .line-tools { display: flex; }
+.editing .line .who { cursor: pointer; text-decoration: underline dotted; }
+.editing .event { grid-template-columns: 70px 1fr auto; }
+.event .line-tools { display: none; }
+.line textarea { grid-column: 3 / -1; min-height: 60px; }
+.line .edit-buttons { grid-column: 3 / -1; display: flex; gap: 6px; }
+
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--pane);
+  color: var(--text);
+  padding: 18px 20px;
+  width: min(460px, 92vw);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+dialog h3 { margin: 0 0 6px; font-size: 16px; }
+dialog p { margin: 0 0 10px; font-size: 13px; white-space: pre-line; }
+#dialogFields { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+#dialogFields label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+#dialogFields ul { margin: 0; padding-left: 18px; max-height: 180px; overflow-y: auto; font-size: 12px; }
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+.pop { position: absolute; z-index: 5; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2); }

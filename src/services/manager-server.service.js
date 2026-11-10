@@ -3,12 +3,30 @@ const http = require('http');
 const path = require('path');
 const EventEmitter = require('events');
 const libraryService = require('./library.service');
+const libraryEdit = require('./library-edit.service');
 const security = require('../core/manager-http');
 const logger = require('../core/logger').createServiceLogger('MANAGER');
 
 // The listener closes itself once no manager tab has been open for this long.
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
 const HEARTBEAT_MS = 25 * 1000;
+const MAX_BODY_BYTES = 1024 * 1024;
+
+// POST /api/<name>: body in, result out. Each one changes something on disk,
+// so every open tab is told to refresh afterwards.
+const ACTIONS = {
+  'meeting/info': (body) => libraryEdit.saveInfo(body.id, body.info),
+  'meeting/rename': (body) => libraryEdit.renameMeeting(body.id, body.name),
+  'meeting/move': (body) => libraryEdit.move(body.ids, body.folder),
+  'meeting/tag': (body) => libraryEdit.tag(body.ids, body.tag, body.remove),
+  'meeting/trash': (body) => libraryEdit.trash(body.ids, body.what === 'audio' ? 'audio' : 'all'),
+  'meeting/edit': (body) => libraryEdit.editTranscript(body.id, body.op),
+  'meeting/glossary': (body) => libraryEdit.saveGlossary(body.id, body.text),
+  'corrections': (body) => libraryEdit.saveCorrections(body.id || '', body.rules),
+  'folder/create': (body) => libraryEdit.createFolder(body.parent, body.name),
+  'folder/rename': (body) => libraryEdit.renameFolder(body.id, body.name),
+  'folder/delete': (body) => libraryEdit.deleteFolder(body.id)
+};
 
 const ROOT = path.join(__dirname, '..', '..');
 const STATIC = {
@@ -165,7 +183,9 @@ class ManagerServer extends EventEmitter {
     if (req.method === 'GET' && STATIC[url.pathname]) return this._static(res, STATIC[url.pathname]);
     if (req.method === 'GET' && url.pathname === '/api/events') return this._eventStream(req, res);
     if (req.method === 'GET' && url.pathname === '/media') return this._media(req, res, url);
+    if (req.method === 'GET' && url.pathname === '/api/export') return this._export(res, url);
     if (req.method === 'GET' && url.pathname.startsWith('/api/')) return this._get(res, url);
+    if (req.method === 'POST' && url.pathname.startsWith('/api/')) return this._post(req, res, url);
     return this._json(res, 404, { ok: false, error: 'Not found' });
   }
 
@@ -187,6 +207,10 @@ class ManagerServer extends EventEmitter {
           return this._json(res, 200, { ok: true, meeting: libraryService.meeting(query.get('id')) });
         case '/api/search':
           return this._json(res, 200, { ok: true, ...libraryService.search(query.get('q')) });
+        case '/api/glossary':
+          return this._json(res, 200, { ok: true, ...libraryEdit.getGlossary(query.get('id')) });
+        case '/api/corrections':
+          return this._json(res, 200, { ok: true, ...libraryEdit.getCorrections(query.get('id') || '') });
         case '/api/status':
           return this._json(res, 200, { ok: true, ...(this.api.status ? this.api.status() : {}) });
         default:
@@ -195,6 +219,72 @@ class ManagerServer extends EventEmitter {
     } catch (error) {
       return this._json(res, 400, { ok: false, error: error.message });
     }
+  }
+
+  async _post(req, res, url) {
+    const name = url.pathname.slice('/api/'.length);
+    const action = ACTIONS[name];
+    if (!action) return this._json(res, 404, { ok: false, error: 'Not found' });
+    let body;
+    try {
+      body = await this._readBody(req);
+    } catch (error) {
+      return this._json(res, 400, { ok: false, error: error.message });
+    }
+    try {
+      const result = await action(body);
+      this.broadcast('library', { reason: name });
+      return this._json(res, 200, { ok: true, ...result });
+    } catch (error) {
+      logger.info('Manager action refused', { action: name, error: error.message });
+      return this._json(res, 400, { ok: false, error: error.message });
+    }
+  }
+
+  _readBody(req) {
+    if (!/^application\/json\b/.test(req.headers['content-type'] || '')) {
+      return Promise.reject(new Error('Expected JSON'));
+    }
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      let size = 0;
+      req.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > MAX_BODY_BYTES) {
+          reject(new Error('Request too large'));
+          req.destroy();
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected an object');
+          resolve(parsed);
+        } catch (error) {
+          reject(new Error('Invalid JSON: ' + error.message));
+        }
+      });
+      req.on('error', reject);
+    });
+  }
+
+  /** A transcript as a download (md, txt, srt, llm). */
+  _export(res, url) {
+    let file;
+    try {
+      file = libraryEdit.exportMeeting(url.searchParams.get('id'), url.searchParams.get('format'), url.searchParams.get('markup') === '1');
+    } catch (error) {
+      return this._json(res, 400, { ok: false, error: error.message });
+    }
+    // Plain-ASCII fallback for the quoted filename; filename* carries the real one.
+    const ascii = file.filename.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '');
+    res.writeHead(200, {
+      'Content-Type': file.type,
+      'Content-Disposition': `${url.searchParams.get('inline') === '1' ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`
+    });
+    res.end(file.body);
   }
 
   _eventStream(req, res) {

@@ -60,6 +60,7 @@ const modelStore = require("./src/services/model-store.service");
 const profiles = require("./src/core/profiles");
 const libraryService = require("./src/services/library.service");
 const managerServer = require("./src/services/manager-server.service");
+const libraryEdit = require("./src/services/library-edit.service");
 const speedStats = require("./src/services/speed-stats.service");
 const windowManager = require("./src/managers/window.manager");
 
@@ -296,6 +297,8 @@ class ApplicationController {
         queuedFolders: pass.queued,
       };
     });
+    // Deletes from the manager go to the Recycle Bin, never straight off the disk.
+    libraryEdit.setTrash((target) => shell.trashItem(target));
     managerServer.setApi({
       status: () => ({
         recording: transcriptionService.isRecording,

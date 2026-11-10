@@ -15,6 +15,8 @@
       </label>
       <nav id="folders" class="folders" aria-label="Folders"></nav>
       <div class="sidebar-foot">
+        <button class="link" id="storageBtn">Storage and cleanup</button>
+        <button class="link" id="globalCorrectionsBtn">Corrections for all meetings</button>
         <div id="totals" class="muted"></div>
         <div id="connection" class="muted"></div>
       </div>
@@ -29,6 +31,23 @@
           <option value="longest">Longest first</option>
           <option value="largest">Largest first</option>
         </select>
+      </div>
+      <div id="storagePanel" class="storage" hidden>
+        <div id="storageTotals"></div>
+        <div class="row">
+          Delete the audio of meetings older than
+          <input type="number" id="cleanupDays" min="1" value="90" aria-label="Days" />
+          days that already have a final transcript.
+        </div>
+        <button class="btn" id="cleanupBtn">Review…</button>
+      </div>
+      <div id="bulkBar" class="bulk" hidden>
+        <span id="bulkCount"></span>
+        <button class="btn" data-bulk="move">Move…</button>
+        <button class="btn" data-bulk="tag">Tag…</button>
+        <button class="btn" data-bulk="audio">Delete audio</button>
+        <button class="btn danger" data-bulk="trash">Delete</button>
+        <button class="btn ghost" data-bulk="clear">Clear</button>
       </div>
       <div id="queue" class="queue" hidden></div>
       <ul id="meetings" class="meetings"></ul>
@@ -46,8 +65,25 @@
           <div>
             <h1 id="meetingTitle"></h1>
             <div class="meta" id="meetingMeta"></div>
+            <div class="badges" id="meetingBadges"></div>
           </div>
-          <div class="badges" id="meetingBadges"></div>
+          <div class="actions">
+            <button class="btn" id="renameBtn">Rename</button>
+            <button class="btn" id="moveBtn">Move</button>
+            <button class="btn" id="copyLlmBtn" title="Copy the transcript with a short header, ready to paste into an assistant">Copy for LLM</button>
+            <select id="exportSelect" aria-label="Export">
+              <option value="">Export…</option>
+              <option value="md">Markdown (.md)</option>
+              <option value="txt">Plain text (.txt)</option>
+              <option value="srt">Subtitles (.srt)</option>
+              <option value="llm">Text for an LLM (.txt)</option>
+            </select>
+            <select id="deleteSelect" aria-label="Delete">
+              <option value="">Delete…</option>
+              <option value="audio">Delete the audio only</option>
+              <option value="all">Delete the whole meeting</option>
+            </select>
+          </div>
         </header>
 
         <div class="player" id="player">
@@ -68,21 +104,52 @@
             <label class="toggle" title="Jump over silences longer than 2 s"><input type="checkbox" id="skipSilence" /> Skip silence</label>
             <label class="toggle" title="Repeat the current line (L)"><input type="checkbox" id="loopLine" /> Loop line</label>
             <label class="toggle" title="Keep the current line in view"><input type="checkbox" id="follow" checked /> Follow</label>
+            <button class="btn small" id="addMarkerBtn" title="Add a marker at the current position (M)">+ Marker</button>
           </div>
           <p id="noAudio" class="muted" hidden>No archived audio for this meeting.</p>
         </div>
 
         <div class="tabs" role="tablist">
           <button class="tab active" data-tab="transcript" role="tab">Transcript</button>
+          <button class="tab" data-tab="notes" role="tab">Notes and tags</button>
+          <button class="tab" data-tab="glossary" role="tab">Glossary and corrections</button>
           <button class="tab" data-tab="details" role="tab">Details</button>
         </div>
 
         <div class="tab-page" id="tab-transcript">
           <div class="transcript-tools">
             <span id="sourceNote" class="muted"></span>
-            <label class="toggle"><input type="checkbox" id="showMarkup" checked /> Show uncertain words</label>
+            <span>
+              <label class="toggle"><input type="checkbox" id="showMarkup" checked /> Show uncertain words</label>
+              <label class="toggle" title="Fix text, speakers, merge or delete lines"><input type="checkbox" id="editMode" /> Edit</label>
+            </span>
           </div>
           <div id="transcript" class="transcript"></div>
+        </div>
+
+        <div class="tab-page" id="tab-notes" hidden>
+          <form id="infoForm" class="form">
+            <label>Title <input type="text" name="title" maxlength="200" placeholder="Shown instead of the folder name" /></label>
+            <label>Participants <input type="text" name="participants" maxlength="2000" /></label>
+            <label>Tags <input type="text" name="tags" placeholder="comma separated" /></label>
+            <label>Notes <textarea name="notes" rows="12"></textarea></label>
+            <div><button class="btn primary" type="submit">Save</button> <span id="infoSaved" class="muted"></span></div>
+          </form>
+        </div>
+
+        <div class="tab-page" id="tab-glossary" hidden>
+          <p class="muted">The glossary and corrections this meeting was recorded with. They apply the next time its final pass runs.</p>
+          <h3>Glossary</h3>
+          <textarea id="glossaryText" rows="10" spellcheck="false"></textarea>
+          <div><button class="btn primary" id="glossarySave">Save glossary</button> <span id="glossarySaved" class="muted"></span></div>
+          <h3>Corrections</h3>
+          <p class="muted">Words the model keeps mishearing. Tip: select a word in the transcript to add it here.</p>
+          <div id="correctionsTable" class="corrections"></div>
+          <div>
+            <button class="btn" id="correctionAdd">Add row</button>
+            <button class="btn primary" id="correctionsSave">Save corrections</button>
+            <span id="correctionsSaved" class="muted"></span>
+          </div>
         </div>
 
         <div class="tab-page" id="tab-details" hidden>
@@ -91,6 +158,19 @@
       </div>
     </main>
   </div>
+
+  <dialog id="dialog">
+    <form method="dialog" id="dialogForm">
+      <h3 id="dialogTitle"></h3>
+      <p id="dialogText" class="muted"></p>
+      <div id="dialogFields"></div>
+      <div class="dialog-buttons">
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="ok" id="dialogOk">OK</button>
+      </div>
+    </form>
+  </dialog>
+  <button id="correctionPop" class="btn small pop" hidden>Add correction…</button>
   <div id="streams" hidden></div>
   <div id="toast" class="toast" hidden></div>
   <script src="/manager.js"></script>
