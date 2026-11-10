@@ -106,6 +106,28 @@ function isComplete(dir, convert = false) {
   }
 }
 
+/**
+ * What to spawn to fetch one model. A normal model goes through
+ * faster-whisper's own downloader so the layout is exactly what WhisperModel()
+ * looks for. A `convert` model runs scripts/convert_ct2.py instead, with the
+ * Hugging Face cache pointed at `scratch` so the full-precision source weights
+ * land there (and are deleted afterwards) rather than in the user's own cache.
+ */
+function downloadCommand({ repo, dir, convert, scratch, paths }) {
+  if (!convert) {
+    return {
+      args: ['-c',
+        'import sys\nfrom faster_whisper import download_model\ndownload_model(sys.argv[1], cache_dir=sys.argv[2])',
+        repo, paths.modelDir],
+      env: paths.env
+    };
+  }
+  return {
+    args: ['-u', paths.convertScript, repo, dir],
+    env: { ...paths.env, HF_HUB_CACHE: scratch, TRANSFORMERS_CACHE: scratch }
+  };
+}
+
 class ModelStore extends EventEmitter {
   constructor() {
     super();
@@ -148,10 +170,9 @@ class ModelStore extends EventEmitter {
   }
 
   /**
-   * Fetch a model into the cache without loading it, through faster-whisper's
-   * own downloader so the layout is exactly what WhisperModel() looks for.
+   * Fetch a model into the cache without loading it (see downloadCommand).
    * @param {string} id
-   * @param {object} paths  { python, modelDir, env } from transcriptionService.getPaths()
+   * @param {object} paths  { python, modelDir, convertScript, env } from transcriptionService.getPaths()
    */
   download(id, paths) {
     const repo = repoFor(id);
@@ -167,6 +188,9 @@ class ModelStore extends EventEmitter {
     const expected = ((entry && entry.sizeMb) || 0) * 1e6;
     const convert = Boolean(entry && entry.convert);
     const dir = dirFor(paths.modelDir, repo, convert);
+    if (convert && (!paths.convertScript || !fs.existsSync(paths.convertScript))) {
+      throw new Error('convert_ct2.py was not found');
+    }
     // The converter downloads the original weights here and they are removed
     // afterwards, so the user's own Hugging Face cache does not gain ~6 GB.
     const scratch = path.join(paths.modelDir, '.convert-' + repo.replace(/\//g, '--'));
@@ -177,17 +201,22 @@ class ModelStore extends EventEmitter {
     const started = Date.now();
 
     return new Promise((resolve, reject) => {
-      const child = spawn(paths.python, ['-c',
-        'import sys\nfrom faster_whisper import download_model\ndownload_model(sys.argv[1], cache_dir=sys.argv[2])',
-        repo, paths.modelDir], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true, env: paths.env });
+      const command = downloadCommand({ repo, dir, convert, scratch, paths });
+      const child = spawn(paths.python, command.args, {
+        stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: command.env
+      });
 
+      // The converter reports on stdout and fails on stderr; the tail of both
+      // is what explains a failure.
       const stderrTail = [];
-      child.stderr.on('data', (chunk) => {
+      const keepTail = (chunk) => {
         const text = chunk.toString().trim();
         if (!text) return;
         stderrTail.push(text);
         while (stderrTail.length > 6) stderrTail.shift();
-      });
+      };
+      child.stdout.on('data', keepTail);
+      child.stderr.on('data', keepTail);
 
       // The downloader prints a progress bar for a terminal; the size on disk
       // against the catalog size is simpler and good enough for a bar.
@@ -206,6 +235,9 @@ class ModelStore extends EventEmitter {
         if (convert) {
           fs.rmSync(scratch, { recursive: true, force: true });
           fs.rmSync(dir + '.partial', { recursive: true, force: true });
+          // Left behind by builds that sent this repo through the plain
+          // downloader: config files only, never loadable.
+          fs.rmSync(dirFor(paths.modelDir, repo, false), { recursive: true, force: true });
         }
         if (error) {
           logger.error('Model download failed', { repo, error: error.message });
@@ -261,4 +293,5 @@ module.exports = new ModelStore();
 module.exports.CATALOG = CATALOG;
 module.exports.catalogEntry = catalogEntry;
 module.exports.repoFor = repoFor;
+module.exports.downloadCommand = downloadCommand;
 module.exports.ModelStore = ModelStore;
