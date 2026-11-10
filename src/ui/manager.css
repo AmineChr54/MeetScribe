@@ -336,3 +336,9 @@ dialog p { margin: 0 0 10px; font-size: 13px; white-space: pre-line; }
 #dialogFields ul { margin: 0; padding-left: 18px; max-height: 180px; overflow-y: auto; font-size: 12px; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 .pop { position: absolute; z-index: 5; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2); }
+
+/* ── Queue ── */
+.queue .job { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.queue .job .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.queue .job .opts { color: var(--muted); font-size: 11px; }
+.queue h4 { margin: 0; font-size: 12px; font-weight: 600; }
