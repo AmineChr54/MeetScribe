@@ -29,14 +29,19 @@ test('every schema field has a label and a known type', () => {
   for (const section of schema.describe()) {
     for (const field of section.fields) {
       assert.ok(field.label, field.key);
-      assert.ok(['bool', 'number', 'select', 'model', 'text', 'textarea'].includes(field.type), field.key);
+      assert.ok(['bool', 'number', 'select', 'model', 'text', 'textarea', 'glossaries'].includes(field.type), field.key);
     }
   }
 });
 
 test('a profile can be edited directly, keeping only profile keys', () => {
-  const stored = profiles.update('german', { whisperLanguage: 'de', folderNamePrefix: 'Standup', glossary: 'Acme', windowGap: 3 }, {});
-  assert.deepEqual(stored.german, { whisperLanguage: 'de', folderNamePrefix: 'Standup', glossary: 'Acme' });
-  assert.equal(profiles.getProfile('german', stored).values.glossary, 'Acme');
+  const patch = profiles.update('german', { whisperLanguage: 'de', folderNamePrefix: 'Standup', glossary: 'Acme', windowGap: 3 }, {});
+  assert.deepEqual(patch.profiles.german, { whisperLanguage: 'de', folderNamePrefix: 'Standup', glossary: 'Acme' });
+  assert.equal(profiles.getProfile('german', patch).values.glossary, 'Acme');
   assert.throws(() => profiles.update('nope', {}, {}), /Unknown profile/);
+});
+
+test('project glossaries are a cleaned list of names', () => {
+  assert.deepEqual(schema.validatePatch({ glossarySet: ['Acme', 'acme', 'Zorblin/'] }).patch.glossarySet, ['Acme', 'Zorblin']);
+  assert.equal(schema.validatePatch({ glossarySet: 'Acme' }).errors.length, 1);
 });

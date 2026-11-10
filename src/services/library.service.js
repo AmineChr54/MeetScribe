@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const settingsStore = require('../core/settings.store');
 const library = require('../core/library');
+const glossaries = require('../core/glossaries');
 const { mediaType } = require('../core/manager-http');
 const logger = require('../core/logger').createServiceLogger('LIBRARY');
 
@@ -163,6 +164,42 @@ class LibraryService {
       }
     }
     return total;
+  }
+
+  // ── Project glossaries ──
+
+  glossaryDir() {
+    return path.join(this.root(), glossaries.DIR_NAME);
+  }
+
+  /** Every project glossary: { name, text, terms, updatedAt }, by name. */
+  projectGlossaries() {
+    const dir = this.glossaryDir();
+    let names = [];
+    try {
+      names = fs.readdirSync(dir).filter((name) => /\.txt$/i.test(name));
+    } catch (_) {
+      return [];
+    }
+    const out = [];
+    for (const file of names) {
+      const full = path.join(dir, file);
+      try {
+        const stat = fs.statSync(full);
+        if (!stat.isFile() || stat.size > 256 * 1024) continue;
+        const text = fs.readFileSync(full, 'utf8').replace(/\r\n/g, '\n');
+        out.push({ name: file.replace(/\.txt$/i, ''), text, terms: glossaries.countTerms(text), updatedAt: stat.mtimeMs });
+      } catch (_) { /* vanished or unreadable */ }
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /** The named glossaries that exist, in the order asked for. */
+  readProjectGlossaries(names) {
+    const all = this.projectGlossaries();
+    return glossaries.cleanSet(names)
+      .map((name) => all.find((glossary) => glossary.name.toLowerCase() === name.toLowerCase()))
+      .filter(Boolean);
   }
 
   // ── One meeting ──

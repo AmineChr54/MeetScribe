@@ -12,6 +12,8 @@
  * somewhere else.
  */
 
+const glossaries = require('./glossaries');
+
 const LANGUAGES = [
   ['auto', 'Detect automatically'], ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['es', 'Spanish'],
   ['it', 'Italian'], ['nl', 'Dutch'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['tr', 'Turkish'], ['ru', 'Russian'],
@@ -55,7 +57,8 @@ const SECTIONS = [
       { key: 'silenceHangoverMs', type: 'number', min: 200, max: 3000, step: 50, label: 'Silence that ends a line (ms)' },
       { key: 'maxUtteranceMs', type: 'number', min: 3000, max: 30000, step: 1000, label: 'Longest line (ms)' },
       { key: 'vadEnergyFloor', type: 'number', min: 0.001, max: 0.1, step: 0.001, label: 'Speech energy floor' },
-      { key: 'glossary', type: 'textarea', max: 65536, label: 'Glossary', help: 'Names and jargon, one per line or comma separated. "#" lines are notes, ">" lines are context for the model. Copied into each new meeting.' }
+      { key: 'glossarySet', type: 'glossaries', label: 'Project glossaries', help: 'Copied into each new meeting, before the terms below. Manage them on the Glossaries page.' },
+      { key: 'glossary', type: 'textarea', max: 65536, label: 'Other glossary terms', help: 'Names and jargon, one per line or comma separated. "#" lines are notes, ">" lines are context for the model. Copied into each new meeting.' }
     ]
   },
   {
@@ -129,6 +132,10 @@ function validatePatch(raw) {
       case 'model':
         if ((field.optional && value === '') || (typeof value === 'string' && MODEL_ID.test(value))) patch[key] = value;
         else errors.push(`${field.label}: not a model name`);
+        break;
+      case 'glossaries':
+        if (!Array.isArray(value) || value.length > 50) errors.push(`${field.label}: expected a list of glossary names`);
+        else patch[key] = glossaries.cleanSet(value);
         break;
       case 'text':
       case 'textarea': {
