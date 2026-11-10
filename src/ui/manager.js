@@ -2011,6 +2011,8 @@
       side.push(el('span', { class: 'muted small', text: `Downloading… ${progress}%` }));
     } else if (!model.downloaded) {
       side.push(button('download', `Download${model.sizeMb ? ' · ' + fmtBytes(model.sizeMb * 1e6) : ''}`, () => modelAction('download', model), 'small'));
+      // Added from Hugging Face but never (fully) downloaded: let it go again.
+      if (model.custom) side.push(iconButton('x', 'Remove from the list', () => modelAction('delete', model), 'danger'));
     } else {
       if (roles.includes('live') && !(model.inUse || []).includes('live')) side.push(button('mic', 'Use live', () => useModel(model, 'live'), 'small'));
       if (roles.includes('final') && !(model.inUse || []).includes('final')) side.push(button('sparkles', 'Use for final', () => useModel(model, 'final'), 'small'));
@@ -2028,7 +2030,9 @@
 
   async function modelAction(action, model, options = {}) {
     if (action === 'delete') {
-      const values = await ask({ title: `Delete ${model.label}?`, text: `Frees ${fmtBytes(model.bytes)}. You can download it again later.`, ok: 'Delete', danger: true });
+      const values = await ask(model.downloaded
+        ? { title: `Delete ${model.label}?`, text: `Frees ${fmtBytes(model.bytes)}. You can download it again later.`, ok: 'Delete', danger: true }
+        : { title: `Remove ${model.label} from the list?`, text: model.bytes ? `Deletes the ${fmtBytes(model.bytes)} downloaded so far.` : 'You can add it again from the search.', ok: 'Remove', danger: true });
       if (!values) return;
     }
     const result = await attempt(() => post('/api/models/' + action, { id: model.id, ...options }), action === 'delete' ? 'Could not delete the model' : 'Could not start the download');

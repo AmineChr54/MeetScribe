@@ -201,6 +201,8 @@ function select(id, settings = {}, defaults = {}) {
  */
 function recordEdit(active, patch, settings = {}) {
   if (!active || active === NONE_ID || !patch || !PROFILE_KEYS.some((key) => key in patch)) return null;
+  // Picking a profile writes its own values; that is not an edit of it.
+  if ('activeProfile' in patch || 'profiles' in patch || 'myProfiles' in patch) return null;
   return update(active, pick(settings), settings, { quiet: true });
 }
 

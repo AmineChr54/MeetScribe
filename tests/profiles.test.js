@@ -81,6 +81,9 @@ test('edits are written back into the active profile only', () => {
   assert.equal(profiles.recordEdit('', { folderNamePrefix: 'x' }, settings), null);
   assert.equal(profiles.recordEdit(profiles.NONE_ID, { folderNamePrefix: 'x' }, settings), null);
   assert.equal(profiles.recordEdit('english', { windowGap: 4 }, settings), null);
+  // Picking a profile passes its values through saveSettings: not an edit.
+  const picked = profiles.select('english', settings, DEFAULTS).patch;
+  assert.equal(profiles.recordEdit('english', picked, { ...settings, ...picked }), null);
 });
 
 test('a profile of your own: create from settings, edit, rename, delete', () => {

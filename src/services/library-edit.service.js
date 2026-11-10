@@ -301,6 +301,8 @@ class LibraryEditService {
     const dir = libraryService.meetingDir(id);
     this._assertIdle(dir);
     const chosen = libraryService.readProjectGlossaries(names);
+    // Ticked glossaries that have all been deleted meanwhile must not quietly mean "none".
+    if (glossaries.cleanSet(names).length && !chosen.length) throw new Error('Those glossaries no longer exist');
     const text = chosen.length ? glossaries.meetingFile(glossaries.compose(chosen)) : glossaries.emptyGlossary();
     this._writeAtomic(this._glossaryFile(id), text.replace(/\r?\n/g, '\r\n'));
     return { text, glossaries: chosen.map((glossary) => glossary.name) };
