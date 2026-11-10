@@ -10,6 +10,7 @@ const audioArchive = require('./audio-archive.service');
 const corrections = require('./corrections');
 const speedStats = require('./speed-stats.service');
 const transcriptRender = require('../core/transcript-render');
+const passOptions = require('../core/pass-options');
 const logger = require('../core/logger').createServiceLogger('FINAL-PASS');
 
 // Nothing on stdout for this long means the child is wedged, not slow: it
@@ -80,7 +81,35 @@ class OfflinePassService extends EventEmitter {
   }
 
   getStatus() {
-    return { running: this.running, folder: this.currentFolder, queued: this.queue.map((job) => job.folder) };
+    return {
+      running: this.running,
+      folder: this.currentFolder,
+      pct: this.running ? this.lastPct : 0,
+      overrides: this.currentJob ? this.currentJob.overrides || {} : {},
+      queued: this.queue.map((job) => job.folder),
+      jobs: this.queue.map((job) => ({ folder: job.folder, overrides: job.overrides || {} }))
+    };
+  }
+
+  /** Take a waiting pass out of the queue; its caller hears "cancelled". */
+  dequeue(folder) {
+    const index = this.queue.findIndex((job) => job.folder === folder);
+    if (index < 0) return false;
+    const [job] = this.queue.splice(index, 1);
+    this._persist();
+    job.resolve({ ok: false, cancelled: true, folder, error: 'removed from the queue' });
+    this.emit('queued', { folder, waiting: this.queue.length, pct: this.lastPct });
+    return true;
+  }
+
+  /** Move a waiting pass earlier (negative) or later in the queue. */
+  reorder(folder, delta) {
+    const index = this.queue.findIndex((job) => job.folder === folder);
+    if (index < 0) return false;
+    this.queue = passOptions.moveItem(this.queue, index, Number(delta) || 0);
+    this._persist();
+    this.emit('queued', { folder, waiting: this.queue.length, pct: this.lastPct });
+    return true;
   }
 
   cancel() {
@@ -147,16 +176,17 @@ class OfflinePassService extends EventEmitter {
   }
 
   /**
-   * Folders whose pass was queued or running when the app last quit. Taking
-   * them clears the file; re-queueing them writes back the ones still valid.
+   * Passes that were queued or running when the app last quit, as
+   * { folder, overrides }. Taking them clears the file; re-queueing them
+   * writes back the ones still valid.
    */
   takePending() {
     try {
       const file = settingsStore.userDataFile(PENDING_FILE);
       if (!fs.existsSync(file)) return [];
-      const folders = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const entries = JSON.parse(fs.readFileSync(file, 'utf8'));
       fs.rmSync(file, { force: true });
-      return Array.isArray(folders) ? folders.filter((folder) => typeof folder === 'string') : [];
+      return Array.isArray(entries) ? entries.map(passOptions.normalizePending).filter(Boolean) : [];
     } catch (error) {
       logger.warn('Could not read pending final passes', { error: error.message });
       return [];
@@ -164,7 +194,9 @@ class OfflinePassService extends EventEmitter {
   }
 
   _persist() {
-    const folders = [this.currentJob, ...this.queue].filter(Boolean).map((job) => job.folder);
+    // A bare folder when the pass uses the settings, so older builds can still read it.
+    const folders = [this.currentJob, ...this.queue].filter(Boolean)
+      .map((job) => (job.overrides && Object.keys(job.overrides).length ? { folder: job.folder, overrides: job.overrides } : job.folder));
     try {
       const file = settingsStore.userDataFile(PENDING_FILE);
       if (folders.length === 0) {
@@ -183,8 +215,9 @@ class OfflinePassService extends EventEmitter {
    * @param {object} options.meta      audio/meta.json (streams, start times)
    * @param {array}  options.events    screenshots and markers from the meeting
    * @param {object} options.paths     { python, script, modelDir, env }
+   * @param {object} [options.overrides] settings for this pass only (pass-options.js keys)
    */
-  async run({ folder, meta, events = [], paths }) {
+  async run({ folder, meta, events = [], paths, overrides = {} }) {
     if (this.running) throw new Error('A final pass is already running');
     if (!meta || !Array.isArray(meta.streams) || meta.streams.length === 0) {
       throw new Error('This meeting has no archived audio to re-transcribe');
@@ -200,7 +233,8 @@ class OfflinePassService extends EventEmitter {
     this.cancelled = false;
     this.lastPct = 0;
     this.currentFolder = folder;
-    const settings = settingsStore.all();
+    // A re-run from the manager may pick another model or language for this pass only.
+    const settings = { ...settingsStore.all(), ...passOptions.cleanOverrides(overrides) };
     const glossary = this._loadGlossary(folder, settings);
     const matcher = corrections.buildMatcher(
       corrections.loadRules(folder, settingsStore.userDataFile(corrections.FILE_NAME))
@@ -267,8 +301,9 @@ class OfflinePassService extends EventEmitter {
 
     // Repair anything an older build (or a crash) left malformed before handing
     // it to FFmpeg, which reacts to a bad header by dying rather than complaining.
+    // Imported recordings are the user's own files, never the recorder's WAVs.
     for (const entry of meta.streams) {
-      if (/\.wav$/i.test(entry.path) && fs.existsSync(entry.path)) {
+      if (!meta.imported && /\.wav$/i.test(entry.path) && fs.existsSync(entry.path)) {
         audioArchive.repairWav(entry.path);
       }
     }

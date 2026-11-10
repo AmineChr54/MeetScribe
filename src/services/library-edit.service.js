@@ -9,6 +9,8 @@ const libraryService = require('./library.service');
 const logger = require('../core/logger').createServiceLogger('LIBRARY-EDIT');
 
 const MAX_GLOSSARY_BYTES = 64 * 1024;
+// Formats faster-whisper reads through PyAV, and the player can play.
+const IMPORT_TYPES = ['mp3', 'm4a', 'wav', 'flac', 'ogg', 'webm'];
 
 /**
  * Every change the browser manager makes on disk: meeting details, renaming
@@ -288,6 +290,50 @@ class LibraryEditService {
     if (Object.keys(data).length > 500) throw new Error('Keep it under 500 corrections');
     this._writeAtomic(this._correctionsFile(id), JSON.stringify(data, null, 2) + '\n');
     return { rules: corrections.normalizeRules(data) };
+  }
+
+  // ── Import ──
+
+  /**
+   * Make the folder for an imported recording and say where to write it.
+   * The meeting is named like a recorded one: "<name>_YYYY-MM-DD_HH-MM".
+   */
+  beginImport({ name, startedAt, folder, ext }) {
+    const extension = String(ext || '').toLowerCase().replace(/^\./, '');
+    if (!IMPORT_TYPES.includes(extension)) throw new Error('Pick an audio file: ' + IMPORT_TYPES.join(', '));
+    const start = Number(startedAt);
+    if (!Number.isFinite(start) || start <= 0) throw new Error('The recording needs a date');
+    const root = libraryService.root();
+    const parent = library.resolveInside(root, folder || '');
+    if (!fs.existsSync(parent)) throw new Error('That folder does not exist');
+    const base = library.renamedFolder(name, '', start);
+    let dir = path.join(parent, base);
+    for (let suffix = 2; fs.existsSync(dir); suffix++) dir = path.join(parent, `${base}-${suffix}`);
+    fs.mkdirSync(path.join(dir, 'audio'), { recursive: true });
+    return { dir, file: path.join(dir, 'audio', 'import.' + extension), id: library.idOf(root, dir) };
+  }
+
+  /** The upload is on disk: describe it the way the recorder describes its audio. */
+  finishImport({ dir, file, name, startedAt, durationMs, label }) {
+    const start = Number(startedAt);
+    const duration = Math.max(0, Math.round(Number(durationMs) || 0));
+    const speaker = String(label || '').replace(/[:\r\n]/g, '').trim().slice(0, 40) || 'Speaker';
+    const meta = {
+      version: 1,
+      imported: true,
+      startedAt: start,
+      stoppedAt: start + duration,
+      streams: [{ stream: 'import', label: speaker, path: file, bytes: fs.statSync(file).size, durationMs: duration, startedAt: start }]
+    };
+    this._writeAtomic(path.join(dir, 'audio', 'meta.json'), JSON.stringify(meta, null, 2));
+    const title = String(name || '').trim();
+    if (title) this._writeAtomic(path.join(dir, 'meeting.json'), JSON.stringify({ title: title.slice(0, 200) }, null, 2));
+    logger.info('Recording imported', { bytes: meta.streams[0].bytes });
+    return { id: library.idOf(libraryService.root(), dir) };
+  }
+
+  failImport(dir) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ }
   }
 
   // ── Export ──

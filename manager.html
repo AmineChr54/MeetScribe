@@ -15,6 +15,8 @@
       </label>
       <nav id="folders" class="folders" aria-label="Folders"></nav>
       <div class="sidebar-foot">
+        <button class="link" id="importBtn">Import a recording…</button>
+        <input type="file" id="importFile" accept="audio/*,.mp3,.m4a,.wav,.flac,.ogg,.webm" hidden />
         <button class="link" id="storageBtn">Storage and cleanup</button>
         <button class="link" id="globalCorrectionsBtn">Corrections for all meetings</button>
         <div id="totals" class="muted"></div>
@@ -45,6 +47,7 @@
         <span id="bulkCount"></span>
         <button class="btn" data-bulk="move">Move…</button>
         <button class="btn" data-bulk="tag">Tag…</button>
+        <button class="btn" data-bulk="rerun">Re-run…</button>
         <button class="btn" data-bulk="audio">Delete audio</button>
         <button class="btn danger" data-bulk="trash">Delete</button>
         <button class="btn ghost" data-bulk="clear">Clear</button>
@@ -70,6 +73,7 @@
           <div class="actions">
             <button class="btn" id="renameBtn">Rename</button>
             <button class="btn" id="moveBtn">Move</button>
+            <button class="btn" id="rerunBtn" title="Transcribe the archived audio again, optionally with another model or language">Re-run…</button>
             <button class="btn" id="copyLlmBtn" title="Copy the transcript with a short header, ready to paste into an assistant">Copy for LLM</button>
             <select id="exportSelect" aria-label="Export">
               <option value="">Export…</option>

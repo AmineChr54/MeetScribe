@@ -443,6 +443,9 @@
       if (result) toast(`Moved ${fmtBytes(result.freed)} to the Recycle Bin`);
       if (result && !audioOnly && state.meeting && ids.includes(state.meeting.id)) closeMeeting();
     }
+    else if (action === 'rerun') {
+      result = await rerun(ids);
+    }
     if (!result) return;
     for (const id of ids) state.selected.delete(id);
     await loadLibrary();
@@ -453,6 +456,210 @@
     } else if (state.meeting) {
       openMeeting(state.meeting.id, { keepPosition: true });
     }
+  }
+
+  // ── Final passes: re-run, queue, import ──
+
+  const LANGUAGES = [
+    ['auto', 'Detect automatically'], ['en', 'English'], ['de', 'German'], ['fr', 'French'], ['es', 'Spanish'],
+    ['it', 'Italian'], ['nl', 'Dutch'], ['pt', 'Portuguese'], ['pl', 'Polish'], ['tr', 'Turkish'], ['ar', 'Arabic'],
+    ['ru', 'Russian'], ['uk', 'Ukrainian'], ['zh', 'Chinese'], ['ja', 'Japanese'], ['ko', 'Korean'], ['hi', 'Hindi']
+  ];
+
+  /** Ask which model, language and mode to use, then queue the passes. */
+  async function rerun(ids) {
+    const withAudio = ids.filter((id) => {
+      const meeting = byId(id);
+      return meeting && meeting.hasAudio && meeting.state !== 'recording';
+    });
+    if (!withAudio.length) {
+      toast(ids.length === 1 ? 'This meeting has no archived audio to transcribe.' : 'None of these meetings has archived audio.');
+      return null;
+    }
+    const body = await attempt(() => api('/api/models'), 'Could not list the models');
+    const models = (body ? body.models : []).filter((model) => model.downloaded && (model.roles || []).includes('final'));
+    const settings = { value: '', label: 'As in Settings' };
+    const modelOptions = [settings].concat(models.map((model) => ({
+      value: model.id,
+      label: model.label + (model.estimate && model.estimate.minutes ? ` (≈ ${Math.max(1, Math.round(model.estimate.minutes))} min per hour of meeting)` : '')
+    })));
+    const skipped = ids.length - withAudio.length;
+    const edited = withAudio.some((id) => (byId(id) || {}).hasFinal);
+    const values = await ask({
+      title: withAudio.length === 1 ? `Re-run “${nameOf(withAudio[0])}”` : `Re-run ${withAudio.length} meetings`,
+      text: [
+        'Transcribes the archived audio again, in the background, one meeting at a time.',
+        edited ? 'The final transcript is rebuilt from the audio: changes you made to it in the library are replaced.' : '',
+        skipped ? `${skipped} selected meeting${skipped === 1 ? ' has' : 's have'} no audio and ${skipped === 1 ? 'is' : 'are'} skipped.` : ''
+      ].filter(Boolean).join('\n'),
+      fields: [
+        { name: 'model', label: 'Model', type: 'select', value: '', options: modelOptions },
+        { name: 'language', label: 'Language', type: 'select', value: '', options: [settings].concat(LANGUAGES.map(([value, label]) => ({ value, label }))) },
+        { name: 'mode', label: 'Mode', type: 'select', value: '', options: [settings, { value: 'fast', label: 'Fast (chunked, in parallel)' }, { value: 'quality', label: 'Quality (one continuous decode)' }] },
+        { name: 'diffModel', label: 'Cross-check with a second model', type: 'select', value: 'settings', options: [{ value: 'settings', label: 'As in Settings' }, { value: 'none', label: 'No cross-check' }].concat(models.map((model) => ({ value: model.id, label: model.label }))) }
+      ],
+      ok: 'Re-run'
+    });
+    if (!values) return null;
+    const overrides = {};
+    if (values.model) overrides.model = values.model;
+    if (values.language) overrides.language = values.language;
+    if (values.mode) overrides.mode = values.mode;
+    if (values.diffModel === 'none') overrides.diffModel = '';
+    else if (values.diffModel !== 'settings') overrides.diffModel = values.diffModel;
+    const result = await attempt(() => post('/api/rerun', { ids: withAudio, overrides }), 'Could not start the re-run');
+    if (result) {
+      toast(`Queued ${result.queued} final pass${result.queued === 1 ? '' : 'es'}`);
+      loadQueue();
+    }
+    return result;
+  }
+
+  async function loadQueue() {
+    const body = await attempt(() => api('/api/queue'));
+    if (!body) return;
+    state.queue = { running: body.running, jobs: body.jobs, message: state.queue && state.queue.message };
+    renderQueue();
+  }
+
+  function overridesText(overrides) {
+    const parts = [overrides.model, overrides.language, overrides.mode].filter(Boolean);
+    if (overrides.diffModel) parts.push('cross-check ' + overrides.diffModel);
+    return parts.length ? parts.join(' · ') : 'settings';
+  }
+
+  function renderQueue() {
+    const box = $('queue');
+    const queue = state.queue || {};
+    const upload = state.upload;
+    const nothing = !queue.running && !(queue.jobs || []).length && !upload && !queue.last;
+    box.hidden = nothing;
+    if (nothing) return;
+    const open = (id) => (id ? () => openMeeting(id) : null);
+    const rows = [];
+    if (upload) {
+      rows.push(el('h4', { text: `Uploading ${upload.name}… ${Math.round(upload.pct * 100)}%` }),
+        el('div', { class: 'bar' }, el('span', { style: `width:${Math.round(upload.pct * 100)}%` })));
+    }
+    if (queue.running) {
+      const pct = Math.round((queue.running.pct || 0) * 100);
+      rows.push(el('div', { class: 'job' }, [
+        el('span', { class: 'name', text: queue.running.name, title: 'Open', onclick: open(queue.running.id) }),
+        el('span', { class: 'opts', text: overridesText(queue.running.overrides) }),
+        queue.running.id ? el('button', { class: 'icon', title: 'Cancel this pass', text: '✕', onclick: () => queueAction('cancel', queue.running.id) }) : null
+      ]));
+      rows.push(el('div', { class: 'muted', text: queue.message || `Transcribing… ${pct}%` }),
+        el('div', { class: 'bar' }, el('span', { style: `width:${pct}%` })));
+    } else if (queue.last) {
+      rows.push(el('div', { text: queue.last }));
+    }
+    const jobs = queue.jobs || [];
+    if (jobs.length) rows.push(el('h4', { text: `Waiting (${jobs.length})`, style: 'margin-top:8px' }));
+    jobs.forEach((job, index) => {
+      rows.push(el('div', { class: 'job' }, [
+        el('span', { class: 'name', text: job.name, title: 'Open', onclick: open(job.id) }),
+        el('span', { class: 'opts', text: overridesText(job.overrides) }),
+        job.id ? el('button', { class: 'icon', title: 'Earlier', text: '↑', disabled: index === 0, onclick: () => queueAction('move', job.id, -1) }) : null,
+        job.id ? el('button', { class: 'icon', title: 'Later', text: '↓', disabled: index === jobs.length - 1, onclick: () => queueAction('move', job.id, 1) }) : null,
+        job.id ? el('button', { class: 'icon', title: 'Remove from the queue', text: '✕', onclick: () => queueAction('remove', job.id) }) : null
+      ]));
+    });
+    box.replaceChildren(...rows);
+  }
+
+  async function queueAction(action, id, delta) {
+    if (action === 'cancel') {
+      const values = await ask({ title: 'Cancel this final pass?', text: 'Its transcript stays as it was. You can re-run it later.', ok: 'Cancel the pass', danger: true });
+      if (!values) return;
+    }
+    const result = await attempt(() => post('/api/queue/' + action, { id, delta }), 'Could not change the queue');
+    if (result) loadQueue();
+  }
+
+  /** Length of a local audio file, read by the browser before uploading it. */
+  function audioDuration(file) {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      const url = URL.createObjectURL(file);
+      const done = (ms) => {
+        URL.revokeObjectURL(url);
+        resolve(ms);
+      };
+      audio.preload = 'metadata';
+      audio.onloadedmetadata = () => done(Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : 0);
+      audio.onerror = () => done(0);
+      setTimeout(() => done(0), 8000);
+      audio.src = url;
+    });
+  }
+
+  const localInput = (ms) => {
+    const date = new Date(ms);
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  async function importRecording(file) {
+    const ext = (file.name.match(/\.([a-z0-9]+)$/i) || [])[1] || '';
+    if (!/^(mp3|m4a|wav|flac|ogg|webm)$/i.test(ext)) {
+      toast('Pick an mp3, m4a, wav, flac, ogg or webm file');
+      return;
+    }
+    const durationMs = await audioDuration(file);
+    const status = await attempt(() => api('/api/status'));
+    const realFolder = state.view === 'list' && state.folder && !state.folder.startsWith('tag:') && state.folder !== '/' ? state.folder : '';
+    const values = await ask({
+      title: 'Import a recording',
+      text: `${file.name} · ${fmtBytes(file.size)}${durationMs ? ' · ' + fmtClock(durationMs) : ''}\nA copy is stored as a new meeting; the original file is not touched.`,
+      fields: [
+        { name: 'name', label: 'Name', value: file.name.replace(/\.[^.]+$/, '') },
+        { name: 'when', label: 'Recorded at', type: 'datetime-local', value: localInput(file.lastModified - durationMs || Date.now()) },
+        { name: 'folder', label: 'Folder', type: 'select', value: realFolder, options: folderOptions() },
+        { name: 'label', label: 'Speaker label', value: 'Speaker' },
+        {
+          name: 'transcribe', label: 'Transcribe', type: 'select', value: status && status.whisperReady ? '1' : '0',
+          options: [{ value: '1', label: 'Now, with the final pass' }, { value: '0', label: 'Later (Re-run from the meeting)' }]
+        }
+      ],
+      ok: 'Import'
+    });
+    if (!values) return;
+    const startedAt = new Date(values.when).getTime() || Date.now();
+    const query = new URLSearchParams({
+      name: values.name, startedAt: String(startedAt), durationMs: String(durationMs), folder: values.folder,
+      label: values.label, ext: ext.toLowerCase(), transcribe: values.transcribe
+    });
+
+    state.upload = { name: file.name, pct: 0 };
+    renderQueue();
+    const result = await new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/import?' + query.toString());
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        state.upload.pct = event.loaded / event.total;
+        renderQueue();
+      };
+      xhr.onload = () => {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (_) {
+          resolve({ ok: false, error: 'HTTP ' + xhr.status });
+        }
+      };
+      xhr.onerror = () => resolve({ ok: false, error: 'The upload failed' });
+      xhr.send(file);
+    });
+    state.upload = null;
+    renderQueue();
+    if (!result.ok) {
+      toast('Import failed: ' + result.error);
+      return;
+    }
+    toast(values.transcribe === '1' ? 'Imported; the final pass is queued.' : 'Imported.');
+    await loadLibrary();
+    loadQueue();
+    openMeeting(result.id);
   }
 
   async function cleanup() {
@@ -521,6 +728,8 @@
     for (const tag of meeting.tags) badges.append(el('span', { class: 'pill', text: '#' + tag }));
     const busy = Boolean(meeting.state);
     for (const button of ['renameBtn', 'moveBtn', 'deleteSelect', 'editMode', 'addMarkerBtn']) $(button).disabled = busy;
+    $('rerunBtn').disabled = !meeting.hasAudio || meeting.state === 'recording';
+    $('rerunBtn').title = meeting.hasAudio ? 'Transcribe the archived audio again, optionally with another model or language' : 'This meeting has no archived audio';
     if (busy) $('editMode').checked = false;
 
     renderTranscript();
@@ -1151,20 +1360,30 @@
       }, 400);
     };
     source.addEventListener('library', refreshSoon);
+    let lastTimer = null;
     source.addEventListener('final-pass', (event) => {
       const data = JSON.parse(event.data);
-      const box = $('queue');
-      box.hidden = false;
-      box.replaceChildren(
-        el('div', { text: data.message || 'Final pass' }),
-        el('div', { class: 'bar' }, el('span', { style: `width:${Math.round((data.pct || 0) * 100)}%` }))
-      );
+      const queue = state.queue || (state.queue = { jobs: [] });
       if (data.state === 'done' || data.state === 'failed' || data.state === 'cancelled') {
-        setTimeout(() => { box.hidden = true; }, 6000);
+        queue.message = null;
+        queue.last = data.message || null;
+        clearTimeout(lastTimer);
+        lastTimer = setTimeout(() => {
+          queue.last = null;
+          renderQueue();
+        }, 8000);
+        loadQueue();
         refreshSoon();
-      } else if (data.state === 'starting' || data.state === 'queued') {
-        refreshSoon();
+        return;
       }
+      queue.message = data.message || null;
+      if (queue.running && typeof data.pct === 'number') {
+        queue.running.pct = data.pct;
+        renderQueue();
+      } else {
+        loadQueue();
+      }
+      if (data.state === 'starting' || data.state === 'queued') refreshSoon();
     });
   }
 
@@ -1183,6 +1402,13 @@
     $('renameBtn').addEventListener('click', renameMeeting);
     $('moveBtn').addEventListener('click', () => bulk('move', [state.meeting.id]));
     $('copyLlmBtn').addEventListener('click', copyForLlm);
+    $('rerunBtn').addEventListener('click', () => bulk('rerun', [state.meeting.id]));
+    $('importBtn').addEventListener('click', () => $('importFile').click());
+    $('importFile').addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      event.target.value = '';
+      if (file) importRecording(file);
+    });
     $('exportSelect').addEventListener('change', (event) => {
       exportMeeting(event.target.value);
       event.target.value = '';
@@ -1297,6 +1523,7 @@
     bind();
     await loadLibrary();
     connectEvents();
+    loadQueue();
     const id = decodeURIComponent(location.hash.slice(1));
     if (id && byId(id)) openMeeting(id);
   }

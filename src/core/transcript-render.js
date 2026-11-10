@@ -31,7 +31,7 @@ function buildMarkdown({
   out.push('# Meeting ' + started.toLocaleDateString() + ' · ' + hhmmOf(meta.startedAt) + '–' + hhmmOf(stopped.getTime()));
   out.push('');
   const speakers = meta.streams
-    .map((entry) => entry.label + ' (' + (entry.stream === 'mic' ? 'microphone' : 'system audio') + ')')
+    .map((entry) => entry.label + ' (' + (entry.stream === 'mic' ? 'microphone' : entry.stream === 'import' ? 'imported recording' : 'system audio') + ')')
     .join(' · ');
   out.push('- **Speakers:** ' + speakers);
   out.push('- **ASR:** ' + result.model + ' · ' + (result.mode || 'quality') + ' · beam ' + result.beamSize + ' · ' +

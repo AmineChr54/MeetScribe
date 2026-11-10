@@ -304,7 +304,21 @@ class ApplicationController {
         recording: transcriptionService.isRecording,
         folder: meetingService.folder,
         finalPass: offlinePass.getStatus(),
+        whisperReady: transcriptionService.isAvailable(),
       }),
+      models: () => this.listModels(),
+      queue: () => offlinePass.getStatus(),
+      // Fire and forget: progress reaches the page as "final-pass" events.
+      rerun: (folder, overrides) => {
+        this.rerunFinalPass(folder, overrides).then((result) => {
+          if (!result.ok && !result.cancelled) {
+            managerServer.broadcast("final-pass", { state: "failed", folder, message: `Final pass failed: ${result.error}` });
+          }
+        });
+      },
+      cancelRunning: () => offlinePass.cancel(),
+      dequeue: (folder) => offlinePass.dequeue(folder),
+      reorder: (folder, delta) => offlinePass.reorder(folder, delta),
     });
     // Everything the overlay hears about the final pass, the manager hears too.
     for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
@@ -497,11 +511,11 @@ class ApplicationController {
    * The second pass over the archived audio. Broadcasts progress so the overlay
    * can show it, then compresses the archive once the transcript exists.
    */
-  async runFinalPass({ folder, meta, events = [] }) {
+  async runFinalPass({ folder, meta, events = [], overrides = {} }) {
     // Queued, never refused: a meeting that ends while another pass runs waits
     // its turn instead of silently never getting a final transcript.
     const paths = transcriptionService.getPaths();
-    const result = await offlinePass.enqueue({ folder, meta, events, paths });
+    const result = await offlinePass.enqueue({ folder, meta, events, paths, overrides });
 
     if (result.ok) {
       await this.compressArchive(meta, paths);
@@ -519,7 +533,9 @@ class ApplicationController {
     if (!format || format === "wav") return;
 
     for (const entry of meta.streams || []) {
-      if (!fs.existsSync(entry.path)) continue;
+      // Only the WAVs the recorder wrote: an imported recording keeps its own
+      // file (and for it the ".wav" -> ".flac" target would be the source itself).
+      if (!/\.wav$/i.test(entry.path) || !fs.existsSync(entry.path)) continue;
 
       if (format === "none") {
         try {
@@ -580,7 +596,7 @@ class ApplicationController {
    * editing its glossary.txt, or with a different model. This is the loop that
    * makes the archive worth keeping.
    */
-  async rerunFinalPass(folder) {
+  async rerunFinalPass(folder, overrides = {}) {
     try {
       const target = folder || meetingService.folder;
       if (!target) return { ok: false, error: "No meeting folder was given" };
@@ -598,6 +614,8 @@ class ApplicationController {
           entry.path,
           path.join(target, "audio", `${entry.stream}.flac`),
           path.join(target, "audio", `${entry.stream}.wav`),
+          // Imported recordings keep their own name and format.
+          entry.path ? path.join(target, "audio", path.basename(entry.path)) : null,
         ];
         const found = candidates.find((candidate) => candidate && fs.existsSync(candidate));
         if (found) entry.path = found;
@@ -613,7 +631,7 @@ class ApplicationController {
         }
       }
 
-      return await this.runFinalPass({ folder: target, meta, events });
+      return await this.runFinalPass({ folder: target, meta, events, overrides });
     } catch (error) {
       logger.error("Re-run of the final pass failed", { error: error.message });
       return { ok: false, error: error.message };
@@ -624,11 +642,11 @@ class ApplicationController {
   resumePendingFinalPasses() {
     // Left on disk otherwise, so they resume once Whisper is set up again.
     if (!settingsStore.get("offlinePassEnabled") || !transcriptionService.isAvailable()) return;
-    const folders = offlinePass.takePending();
-    if (folders.length === 0) return;
-    logger.info("Resuming pending final passes", { count: folders.length });
-    for (const folder of folders) {
-      this.rerunFinalPass(folder).then((result) => {
+    const pending = offlinePass.takePending();
+    if (pending.length === 0) return;
+    logger.info("Resuming pending final passes", { count: pending.length });
+    for (const { folder, overrides } of pending) {
+      this.rerunFinalPass(folder, overrides).then((result) => {
         if (!result.ok && !result.cancelled) {
           logger.warn("Skipped a pending final pass", { folder, error: result.error });
         }
