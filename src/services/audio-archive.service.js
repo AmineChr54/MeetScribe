@@ -269,6 +269,12 @@ class AudioArchiveService {
       if (header.toString('ascii', 0, 4) !== 'RIFF' || header.toString('ascii', 8, 12) !== 'WAVE') {
         return [];
       }
+      // Only the exact layout this recorder writes: a 16-byte "fmt " chunk and
+      // "data" at byte 36. Any other WAV (an imported one, say, with an 18-byte
+      // fmt chunk or a LIST chunk) would be corrupted by patching fixed offsets.
+      if (header.toString('ascii', 12, 16) !== 'fmt ' || header.readUInt32LE(16) !== 16 || header.toString('ascii', 36, 40) !== 'data') {
+        return [];
+      }
 
       const dataBytes = size - 44;
       const expectedBlockAlign = CHANNELS * (BITS_PER_SAMPLE / 8);
