@@ -12,6 +12,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Tunisian large-v3 (`medyas/FarukSTT`), converted to CTranslate2 on download; German tiny and small.en live models.
 - Downloaded models are grouped by purpose; Settings sections collapse and remember their state.
 - Meeting library in the browser (overlay → Library, or Settings → Open Manager): browse meetings by folder and tag, search every transcript, and play the archived audio in sync with the transcript (speed, solo one side, skip silence, loop a line, keyboard shortcuts). Screenshots and markers sit in the timeline. Served only on 127.0.0.1 while a tab is open, behind a one-time token.
+- In the library: give meetings a title, notes, participants and tags; rename, move and organise them into folders (real folders on disk, the date stays in the name); fix transcript text and speakers, merge or delete lines, add markers; edit a meeting's glossary and corrections (select a word to add a correction); export as Markdown, text, SRT or text for an LLM, or copy it; delete meetings or only their audio to the Recycle Bin, with a storage view to clean up old audio. Meetings that are recording or being transcribed are left alone.
 
 ### Fixed
 
