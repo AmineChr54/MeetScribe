@@ -13,9 +13,12 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Downloaded models are grouped by purpose; Settings sections collapse and remember their state.
 - Meeting library in the browser (overlay → Library, or Settings → Open Manager): browse meetings by folder and tag, search every transcript, and play the archived audio in sync with the transcript (speed, solo one side, skip silence, loop a line, keyboard shortcuts). Screenshots and markers sit in the timeline. Served only on 127.0.0.1 while a tab is open, behind a one-time token.
 - In the library: give meetings a title, notes, participants and tags; rename, move and organise them into folders (real folders on disk, the date stays in the name); fix transcript text and speakers, merge or delete lines, add markers; edit a meeting's glossary and corrections (select a word to add a correction); export as Markdown, text, SRT or text for an LLM, or copy it; delete meetings or only their audio to the Recycle Bin, with a storage view to clean up old audio. Meetings that are recording or being transcribed are left alone.
+- Re-run the final pass from the library with another model, language, mode or cross-check model, for one meeting or a selection; the queue shows progress and passes can be cancelled, reordered or removed. Per-run choices survive a restart and never change your settings.
+- Import a recording (mp3, m4a, wav, flac, ogg, webm) into the library as a new meeting and transcribe it with the final pass.
 
 ### Fixed
 
+- The WAV header repair before a final pass only touches files in the layout the recorder writes; other WAVs were corrupted by it.
 - Settings opens under the banner instead of covering it, and the transcript and settings panels no longer show at the same time.
 - Picking a profile no longer empties the glossary; a profile only changes it once it has one of its own.
 - Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
