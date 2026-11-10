@@ -24,13 +24,14 @@ MeetScribe is an Electron app (main process + several renderer windows) that she
 ## Archive and offline pass
 
 - `audio-archive.service.js` records raw PCM per stream **before** VAD so timestamps stay wall-clock, writes a `timeline.jsonl` checkpoint every 5 s, pads long stalls with silence, and transcodes to FLAC via `scripts/transcode_flac.py` (PyAV).
-- `model-store.service.js` is the model catalog (aliases → Hugging Face repos), the cache status of `userData/.whisper-models`, and download/delete through faster-whisper's own `download_model`. `speed-stats.service.js` learns final-pass speed (decode seconds per speech-second, per model and mode) and speech per meeting-hour from every pass, into `userData/model-speed.json` (numbers only), and turns them into the per-model time estimate.
+- `model-store.service.js` is the model catalog (aliases → Hugging Face repos), the cache status of `userData/.whisper-models`, and download/delete through faster-whisper's own `download_model`. Repos published only as Transformers weights are instead fetched and converted to CTranslate2 by `scripts/convert_ct2.py` into `.whisper-models/converted/`, with the source weights kept in a scratch folder that is deleted afterwards. `speed-stats.service.js` learns final-pass speed (decode seconds per speech-second, per model and mode) and speech per meeting-hour from every pass, into `userData/model-speed.json` (numbers only), and turns them into the per-model time estimate.
 - `offline-pass.service.js` runs `scripts/whisper_offline.py` after the meeting: `large-v3-turbo` at beam 2, in one of two modes: `fast` (default) runs `BatchedInferencePipeline` over Silero-VAD speech chunks, `quality` is one continuous decode with `condition_on_previous_text`. Passes are queued one at a time at below-normal priority, persisted across restarts. The glossary is trimmed to a token budget so it can't overflow the 448-token context. Temperature ladder with a compression-ratio guard against repetition loops, low-confidence words marked `~like this~`, optional `diffModel` cross-check, paragraph blocks, `## HH:MM` chapters, and an index of up to 40 uncertain spans.
 
 ## Configuration and data
 
 - `src/core/config.js`: shipped defaults (not user-facing).
 - `src/core/settings.store.js`: user settings as JSON in `userData`, atomic writes, seeded from config defaults.
+- `src/core/profiles.js`: built-in profiles (named sets of settings) and the pure logic for picking one, remembering edits per profile and naming meeting folders. A profile changes the glossary only if one was stored for it.
 - Whisper venv and models: `%APPDATA%\MeetScribe\.venv-whisper` and `.whisper-models` (created by `scripts/setup-whisper.js`).
 - Transcripts: `~/Documents/MeetingTranscripts/<meeting>/`.
 - Logs: winston via `src/core/logger.js`.

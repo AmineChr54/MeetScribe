@@ -15,6 +15,8 @@ All notable changes to this project are documented here. Format based on [Keep a
 ### Fixed
 
 - Settings opens under the banner instead of covering it, and the transcript and settings panels no longer show at the same time.
+- Picking a profile no longer empties the glossary; a profile only changes it once it has one of its own.
+- Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
 
 ## [1.4.0] - 2026-10-23
 

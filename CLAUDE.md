@@ -20,10 +20,10 @@ Unit tests cover pure logic only (no Electron, no audio); use synthetic text. Th
 ## Map
 
 - `main.js`: lifecycle + all `ipcMain.handle` channels. `preload.js`: the only renderer bridge (contextIsolation on, nodeIntegration off).
-- `src/core/`: `config.js` (shipped defaults), `settings.store.js` (user JSON in userData), `logger.js`.
+- `src/core/`: `config.js` (shipped defaults), `settings.store.js` (user JSON in userData), `profiles.js` (built-in profiles, pure), `logger.js`.
 - `src/services/`: `transcription.service.js` (orchestrator, echo suppression), `transcription-stream.js` (VAD, utterances, hallucination filter), `whisper-pool.service.js` + `whisper-worker.service.js` (Python workers, JSON-lines over stdio), `meeting.service.js` (ordered, fsync'd transcript), `audio-archive.service.js`, `offline-pass.service.js`, `capture.service.js`.
 - `src/managers/window.manager.js`: windows, click-through, stealth. `src/ui/`: renderer scripts.
-- `scripts/`: `start.js`, `setup-whisper.js`, `whisper_worker.py` (live), `whisper_offline.py` (final pass), `transcode_flac.py`, `check.js`.
+- `scripts/`: `start.js`, `setup-whisper.js`, `whisper_worker.py` (live), `whisper_offline.py` (final pass), `transcode_flac.py`, `convert_ct2.py` (Transformers to CTranslate2 on download), `check.js`.
 
 ## Conventions and gotchas
 
