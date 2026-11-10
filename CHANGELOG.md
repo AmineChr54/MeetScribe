@@ -22,7 +22,9 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Project glossaries: one named glossary per project (the Glossaries page, stored in `.glossaries` in the transcript folder). A meeting can use several or none (its Glossary tab, or the re-run dialog), and a profile picks the ones new recordings start with.
 - Your own profiles: save the current settings as a profile, duplicate any profile, rename it, give it a flag, delete it. "No profile" replaces "My settings" and stands for the multilingual defaults.
 - Models come in two lists, live and final pass. German small (`mkenfenheuer/whisper-small-cv11-german-ct2`) for live German. Search Hugging Face from the Models page and add any Whisper model for live or final; Transformers models are converted on download.
-- Library-only mode: the library's server without the overlay. Start it from the "Open MeetScribe Library" shortcut MeetScribe puts in the transcript folder, or with **Library only** on the overlay; start MeetScribe again (or **Open MeetScribe** in the library) to bring the overlay back. A green dot in the library shows the server is answering.
+- Library-only mode: the library's server without the overlay. Start it from the "Open MeetScribe Library" shortcut MeetScribe puts in the transcript folder, or with the power button in the Library's header, which closes MeetScribe and keeps the Library; the same button (or starting MeetScribe) brings it back. A green dot shows the Library is answering. The browser page is now called MeetScribe Library.
+- Profiles in the app's Settings are one line of small chips in their own Profiles tab.
+- Select meetings in the Library with Ctrl+click, Shift+click (a range), Ctrl+A or the select-all button; Escape clears the selection.
 
 ### Fixed
 
