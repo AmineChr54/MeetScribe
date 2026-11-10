@@ -5,9 +5,10 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const INBOX = '/';
   const state = {
     library: { folders: [], meetings: [] },
-    folder: '',            // '' = all meetings
+    folder: INBOX,         // '/' = the inbox (not in a folder), 'tag:x', or a folder id
     view: 'list',          // 'list' | 'storage'
     query: '',
     results: null,         // Map id -> { hits, snippets } while searching
@@ -73,6 +74,142 @@
       node.append(child instanceof Node ? child : document.createTextNode(String(child)));
     }
     return node;
+  }
+
+  // ── Icons ──
+  //
+  // 24×24 stroke paths drawn for this page. `filled` ones are solid shapes.
+
+  const ICONS = {
+    plus: 'M12 5v14M5 12h14',
+    x: 'M6 6l12 12M18 6L6 18',
+    check: 'M5 12.5l4.5 4.5L19 7',
+    'chevron-down': 'M6 9l6 6 6-6',
+    'arrow-up': 'M12 19V5M6 11l6-6 6 6',
+    'arrow-down': 'M12 5v14M6 13l6 6 6-6',
+    search: 'M17.5 11a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0zM16 16l4.5 4.5',
+    inbox: 'M3 13l3-8h12l3 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM3 13h5l1.5 2.5h5L16 13h5',
+    folder: 'M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+    'folder-plus': 'M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 10.5v6M9 13.5h6',
+    'folder-move': 'M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM8.5 13.5h7M12.5 10.5l3 3-3 3',
+    tag: 'M3 12V4h8l10 10-8 8zM7.5 7.5v.01',
+    book: 'M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7.5h6M9 11h4',
+    mic: 'M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3zM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21',
+    layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5M3 17.5l9 4.5 9-4.5',
+    chip: 'M7 7h10v10H7zM10 10h4v4h-4zM9.5 3v4M14.5 3v4M9.5 17v4M14.5 17v4M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4',
+    sliders: 'M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4',
+    upload: 'M12 15V4M7.5 8.5L12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3',
+    download: 'M12 4v11M7.5 10.5L12 15l4.5-4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3',
+    drive: 'M3 13l3-8h12l3 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM3 13h18M7 16h.01M10.5 16h.01',
+    spell: 'M3 17l4-11 4 11M4.5 13h5M13.5 14l3 3 5-6',
+    pencil: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
+    trash: 'M4 7h16M10 3.5h4M6 7l1 13h10l1-13M10 11v5.5M14 11v5.5',
+    'volume-x': 'M4 9h4l5-4v14l-5-4H4zM17 9.5l5 5M22 9.5l-5 5',
+    refresh: 'M20 11a8 8 0 0 0-14.6-4.5L4 8.5M4 4v4.5h4.5M4 13a8 8 0 0 0 14.6 4.5l1.4-2M20 20v-4.5h-4.5',
+    copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+    sparkles: 'M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9zM18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z',
+    play: '!M7.5 4.8v14.4a.8.8 0 0 0 1.2.7l11.3-7.2a.8.8 0 0 0 0-1.4L8.7 4.1a.8.8 0 0 0-1.2.7z',
+    pause: '!M6.5 4.5h3.8v15H6.5zM13.7 4.5h3.8v15h-3.8z',
+    repeat: 'M17 3l3 3-3 3M4 11.5V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 12.5V15a3 3 0 0 1-3 3H4',
+    'fast-forward': 'M3.5 6l8 6-8 6zM12.5 6l8 6-8 6z',
+    target: 'M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z',
+    flag: 'M5 21V4M5 4h12l-2.5 4.5L17 13H5',
+    eye: 'M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+    text: 'M4 6h16M4 10.5h16M4 15h11M4 19.5h7',
+    notes: 'M5 3h10l4 4v14H5zM14.5 3v4.5H19M8.5 12h7M8.5 16h5',
+    info: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 11v6M12 7.5v.01',
+    monitor: 'M3 4.5h18v11.5H3zM8 20h8M12 16v4',
+    cloud: 'M7 18.5a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9a4.75 4.75 0 0 1 .3 9.5zM12 11v6M9.5 14.5L12 17l2.5-2.5',
+    globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM3 12h18M12 3c2.5 2.6 3.7 5.6 3.7 9s-1.2 6.4-3.7 9M12 3C9.5 5.6 8.3 8.6 8.3 12s1.2 6.4 3.7 9',
+    star: 'M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z',
+    heart: 'M12 20s-7.5-4.6-9-9.2C2 7.5 4.2 5 7 5c2 0 3.6 1.1 5 3 1.4-1.9 3-3 5-3 2.8 0 5 2.5 4 5.8-1.5 4.6-9 9.2-9 9.2z',
+    duplicate: 'M8 8h12v12H8zM4 16V4h12M14 11v6M11 14h6',
+    external: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
+    clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0zM12 7v5l3.5 2',
+    disk: 'M5 3h11l3 3v15H5zM8 3v5h7V3M8 21v-7h8v7',
+    'merge-down': 'M12 3v12M7 10l5 5 5-5M5 20h14',
+    user: 'M16 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM4.5 21a7.5 7.5 0 0 1 15 0',
+    power: 'M12 3v8M6.4 6.5a8 8 0 1 0 11.2 0'
+  };
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function icon(name, extraClass = '') {
+    const raw = ICONS[name] || ICONS.info;
+    const filled = raw.startsWith('!');
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'i' + (filled ? ' filled' : '') + (extraClass ? ' ' + extraClass : ''));
+    svg.setAttribute('aria-hidden', 'true');
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', filled ? raw.slice(1) : raw);
+    svg.append(path);
+    return svg;
+  }
+
+  /** <i data-icon="x"> in the static page becomes the SVG. */
+  function hydrateIcons(root = document) {
+    root.querySelectorAll('i[data-icon]').forEach((node) => {
+      const svg = icon(node.dataset.icon);
+      if (node.id) svg.id = node.id;
+      node.replaceWith(svg);
+    });
+  }
+
+  function setIcon(target, name) {
+    const old = target.querySelector('svg.i');
+    const next = icon(name);
+    if (old) old.replaceWith(next);
+    else target.prepend(next);
+  }
+
+  /** An icon-only button with a tooltip. */
+  function iconButton(name, title, onclick, extraClass = '') {
+    return el('button', { class: 'icon-btn small ' + extraClass, title, 'aria-label': title, type: 'button', onclick }, icon(name));
+  }
+
+  /** A text button with a leading icon. */
+  function button(name, label, onclick, extraClass = '', title = null) {
+    return el('button', { class: 'btn ' + extraClass, type: 'button', title, onclick }, [icon(name), label]);
+  }
+
+  function flagNode(code) {
+    const span = el('span', { class: 'flag', title: window.MeetScribeFlags ? window.MeetScribeFlags.label(code) : code });
+    // Static SVG markup built from numbers in flags.js, nothing from the server.
+    if (window.MeetScribeFlags) span.innerHTML = window.MeetScribeFlags.svg(code);
+    return span;
+  }
+
+  // ── Menu ──
+
+  /** A small pop-up menu under `anchor`: [{ icon, label, hint, danger, onclick } | 'sep']. */
+  function openMenu(anchor, items) {
+    const menu = $('menu');
+    menu.replaceChildren(...items.map((item) => (item === 'sep' ? el('hr') : el('button', {
+      class: item.danger ? 'danger' : '',
+      role: 'menuitem',
+      type: 'button',
+      onclick: () => {
+        closeMenu();
+        item.onclick();
+      }
+    }, [icon(item.icon), el('span', {}, [item.label, item.hint ? el('small', { text: item.hint }) : null])]))));
+    menu.hidden = false;
+    const rect = anchor.getBoundingClientRect();
+    const width = menu.offsetWidth;
+    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width))}px`;
+    menu.style.top = `${Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6)}px`;
+    const first = menu.querySelector('button');
+    if (first) first.focus();
+    setTimeout(() => document.addEventListener('mousedown', outsideMenu), 0);
+  }
+
+  function outsideMenu(event) {
+    if (!$('menu').contains(event.target)) closeMenu();
+  }
+
+  function closeMenu() {
+    $('menu').hidden = true;
+    document.removeEventListener('mousedown', outsideMenu);
   }
 
   let toastTimer = null;
@@ -172,6 +309,39 @@
     const inputs = {};
     for (const field of fields) {
       let input;
+      if (field.type === 'checks') {
+        // Several checkboxes; the value is the list of ticked option values.
+        const chosen = new Set(field.value || []);
+        const boxes = field.options.map((option) => {
+          const box = el('input', { type: 'checkbox', value: option.value });
+          box.checked = chosen.has(option.value);
+          return el('label', { class: 'chip' }, [box, icon(field.icon || 'check'), option.label]);
+        });
+        inputs[field.name] = { type: 'checks', get value() { return boxes.map((label) => label.querySelector('input')).filter((box) => box.checked).map((box) => box.value); } };
+        box.append(el('div', {}, [
+          el('div', { class: 'group-label', text: field.label }),
+          boxes.length ? el('div', { class: 'pick-chips' }, boxes) : el('div', { class: 'muted small', text: field.empty || 'Nothing to pick.' })
+        ]));
+        continue;
+      }
+      if (field.type === 'flags') {
+        let current = field.value || 'custom';
+        const choices = (window.MeetScribeFlags ? window.MeetScribeFlags.codes : ['custom']).map((code) => {
+          const choice = el('button', {
+            type: 'button',
+            class: 'flag-choice' + (code === current ? ' selected' : ''),
+            title: window.MeetScribeFlags ? window.MeetScribeFlags.label(code) : code,
+            onclick: () => {
+              current = code;
+              choices.forEach((node) => node.classList.toggle('selected', node === choice));
+            }
+          }, flagNode(code));
+          return choice;
+        });
+        inputs[field.name] = { type: 'flags', get value() { return current; } };
+        box.append(el('div', {}, [el('div', { class: 'group-label', text: field.label }), el('div', { class: 'flag-pick' }, choices)]));
+        continue;
+      }
       if (field.type === 'select') {
         input = el('select', { name: field.name }, field.options.map((option) => el('option', { value: option.value, text: option.label })));
         input.value = field.value || '';
@@ -189,18 +359,29 @@
         input.value = field.value || '';
       }
       inputs[field.name] = input;
+      // Enter in a one-line field means OK. Said explicitly: implicit form
+      // submission picks the first submit button, which once was Cancel.
+      if (input.tagName === 'INPUT') {
+        input.addEventListener('keydown', (event) => {
+          if (event.key !== 'Enter' || event.isComposing) return;
+          event.preventDefault();
+          if ($('dialogForm').reportValidity()) dialog.close('ok');
+        });
+      }
       box.append(el('label', {}, [field.label, input]));
     }
     if (list) box.append(el('ul', {}, list.map((item) => el('li', { text: item }))));
     const okButton = $('dialogOk');
-    okButton.textContent = ok;
+    okButton.replaceChildren(icon(danger ? 'trash' : 'check'), ok);
     okButton.className = 'btn ' + (danger ? 'danger' : 'primary');
     dialog.returnValue = '';
     dialog.showModal();
-    const first = Object.values(inputs)[0];
+    const first = Object.values(inputs).find((input) => input instanceof HTMLElement);
     if (first) {
       first.focus();
       if (first.select) first.select();
+    } else {
+      okButton.focus();
     }
     return new Promise((resolve) => {
       dialog.addEventListener('close', () => {
@@ -220,24 +401,116 @@
     state.library = body;
     const ids = new Set(body.meetings.map((meeting) => meeting.id));
     for (const id of [...state.selected]) if (!ids.has(id)) state.selected.delete(id);
-    if (state.folder && !state.folder.startsWith('tag:') && state.folder !== '/' &&
-      !body.folders.some((folder) => folder.id === state.folder)) state.folder = '';
+    if (state.folder !== INBOX && !state.folder.startsWith('tag:') &&
+      !body.folders.some((folder) => folder.id === state.folder)) state.folder = INBOX;
     renderFolders();
     renderList();
     const total = body.meetings.reduce((sum, meeting) => sum + (meeting.bytes || 0), 0);
-    $('totals').textContent = `${body.meetings.length} meetings · ${fmtBytes(total)}`;
+    $('totals').textContent = `${body.meetings.length} meeting${body.meetings.length === 1 ? '' : 's'} · ${fmtBytes(total)}`;
   }
 
   function inFolder(meeting, folder) {
-    if (!folder) return true;
     if (folder.startsWith('tag:')) return meeting.tags.includes(folder.slice(4));
-    if (folder === '/') return meeting.parent === '';
+    if (folder === INBOX) return meeting.parent === '';
     return meeting.parent === folder || meeting.parent.startsWith(folder + '/');
   }
 
   function folderOptions() {
-    return [{ value: '', label: 'Transcript folder (top level)' }]
+    return [{ value: '', label: 'Inbox (not in a folder)' }]
       .concat(state.library.folders.slice().sort((a, b) => a.id.localeCompare(b.id)).map((folder) => ({ value: folder.id, label: folder.id })));
+  }
+
+  // Folders the user collapsed in the tree, remembered in this browser only.
+  const collapsed = new Set((() => {
+    try { return JSON.parse(localStorage.getItem('collapsedFolders') || '[]'); } catch (_) { return []; }
+  })());
+  function saveCollapsed() {
+    try { localStorage.setItem('collapsedFolders', JSON.stringify([...collapsed])); } catch (_) { /* private window */ }
+  }
+
+  // ── Drag and drop ──
+  //
+  // Meetings (one, or every selected one when the dragged one is selected) and
+  // folders are dragged onto a folder or the inbox in the sidebar.
+
+  const DRAG_TYPE = 'application/x-meetscribe';
+  let dragging = null; // { kind: 'meetings', ids } | { kind: 'folder', id }
+
+  function startDrag(event, payload, node) {
+    dragging = payload;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(DRAG_TYPE, JSON.stringify(payload));
+    event.dataTransfer.setData('text/plain', payload.kind === 'folder' ? payload.id : payload.ids.join('\n'));
+    if (payload.kind === 'meetings' && payload.ids.length > 1) {
+      const ghost = el('div', { class: 'pill live', text: `${payload.ids.length} meetings`, style: 'position:fixed;top:-100px;left:0;font-size:13px;padding:4px 12px' });
+      document.body.append(ghost);
+      event.dataTransfer.setDragImage(ghost, 10, 10);
+      setTimeout(() => ghost.remove(), 0);
+    }
+    if (node) setTimeout(() => node.classList.add('dragging'), 0);
+  }
+
+  function endDrag() {
+    dragging = null;
+    document.querySelectorAll('.dragging, .drop').forEach((node) => node.classList.remove('dragging', 'drop'));
+  }
+
+  /** Can `payload` go into `target` ('' = inbox / top level)? */
+  function canDrop(payload, target) {
+    if (!payload) return false;
+    if (payload.kind === 'meetings') return payload.ids.some((id) => (byId(id) || {}).parent !== target);
+    if (payload.kind === 'folder') {
+      if (target === payload.id || target.startsWith(payload.id + '/')) return false;
+      const parent = payload.id.includes('/') ? payload.id.slice(0, payload.id.lastIndexOf('/')) : '';
+      return parent !== target;
+    }
+    return false;
+  }
+
+  function dropTarget(row, target) {
+    row.addEventListener('dragover', (event) => {
+      if (!dragging || !canDrop(dragging, target)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      row.classList.add('drop');
+    });
+    row.addEventListener('dragleave', (event) => {
+      if (!row.contains(event.relatedTarget)) row.classList.remove('drop');
+    });
+    row.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      row.classList.remove('drop');
+      const payload = dragging;
+      endDrag();
+      if (!payload || !canDrop(payload, target)) return;
+      if (payload.kind === 'meetings') await moveMeetings(payload.ids, target);
+      else await moveFolder(payload.id, target);
+    });
+  }
+
+  async function moveMeetings(ids, folder) {
+    const result = await attempt(() => post('/api/meeting/move', { ids, folder }), 'Could not move');
+    if (!result) return;
+    const where = folder ? folder.split('/').pop() : 'the inbox';
+    toast(`Moved ${ids.length === 1 ? '“' + nameOf(ids[0]) + '”' : ids.length + ' meetings'} to ${where}`);
+    for (const id of ids) state.selected.delete(id);
+    const open = state.meeting && ids.includes(state.meeting.id)
+      ? result.ids.find((id) => id.split('/').pop() === state.meeting.id.split('/').pop())
+      : null;
+    await loadLibrary();
+    if (open) openMeeting(open, { keepPosition: true });
+  }
+
+  async function moveFolder(id, parent) {
+    const result = await attempt(() => post('/api/folder/move', { id, parent }), 'Could not move the folder');
+    if (!result) return;
+    if (state.folder === id || state.folder.startsWith(id + '/')) state.folder = result.id + state.folder.slice(id.length);
+    if (parent) collapsed.delete(parent);
+    saveCollapsed();
+    await loadLibrary();
+    if (state.meeting && (state.meeting.parent === id || state.meeting.parent.startsWith(id + '/'))) {
+      openMeeting(result.id + state.meeting.id.slice(id.length), { keepPosition: true });
+    }
   }
 
   function renderFolders() {
@@ -246,46 +519,92 @@
     const { meetings, folders } = state.library;
     const select = (id) => {
       if (state.page && state.page !== 'library') showPage('library');
+      if (state.results) {
+        $('search').value = '';
+        state.query = '';
+        state.results = null;
+      }
       state.folder = id;
       state.view = 'list';
       renderFolders();
       renderList();
     };
-    const button = (id, label, depth = 0) => el('button', {
-      class: 'folder' + (state.view === 'list' && state.folder === id ? ' active' : ''),
-      style: `padding-left:${10 + depth * 14}px`,
-      onclick: () => select(id)
-    }, [el('span', { text: label }), el('span', { class: 'count', text: meetings.filter((m) => inFolder(m, id)).length })]);
+    const row = ({ id, label, iconName, depth = 0, kind = 'folder', folder = null }) => {
+      const count = meetings.filter((m) => inFolder(m, id)).length;
+      const children = folder ? folders.filter((entry) => entry.parent === folder.id) : [];
+      const twisty = el('button', {
+        class: 'twisty' + (children.length ? (collapsed.has(id) ? ' closed' : '') : ' none'),
+        type: 'button',
+        tabindex: children.length ? '0' : '-1',
+        'aria-label': collapsed.has(id) ? 'Expand' : 'Collapse',
+        onclick: (event) => {
+          event.stopPropagation();
+          if (collapsed.has(id)) collapsed.delete(id);
+          else collapsed.add(id);
+          saveCollapsed();
+          renderFolders();
+        }
+      }, icon('chevron-down'));
+      const active = state.view === 'list' && !state.results && state.folder === id;
+      const node = el('div', {
+        class: 'folder-row' + (active ? ' active' : ''),
+        style: `padding-left:${4 + depth * 14}px`,
+        draggable: folder ? 'true' : null
+      }, [
+        kind === 'folder' ? twisty : el('span', { class: 'twisty none' }),
+        el('button', { class: 'folder ' + kind, type: 'button', onclick: () => select(id), title: folder ? folder.id : label }, [
+          icon(iconName), el('span', { class: 'label', text: label }),
+          el('span', { class: 'count' + (kind === 'inbox' && count ? ' lit' : ''), text: count || (kind === 'inbox' ? '0' : '') })
+        ]),
+        folder ? el('span', { class: 'folder-tools' }, [
+          iconButton('folder-plus', 'New folder inside', () => newFolder(folder.id)),
+          iconButton('pencil', 'Rename folder', () => renameFolder(folder)),
+          iconButton('trash', 'Delete folder (only when empty)', () => deleteFolder(folder), 'danger')
+        ]) : null
+      ]);
+      if (kind !== 'tag') dropTarget(node, kind === 'inbox' ? '' : id);
+      if (folder) {
+        node.addEventListener('dragstart', (event) => startDrag(event, { kind: 'folder', id: folder.id }, node));
+        node.addEventListener('dragend', endDrag);
+      }
+      return node;
+    };
 
-    nav.append(button('', 'All meetings'));
-    nav.append(button('/', 'Not in a folder'));
-    nav.append(el('div', { class: 'folder-group' }, [
-      el('span', { text: 'Folders' }),
-      el('button', { class: 'icon', title: 'New folder', text: '+', onclick: () => newFolder('') })
-    ]));
-    const sorted = folders.slice().sort((a, b) => a.id.localeCompare(b.id));
-    for (const folder of sorted) {
-      nav.append(el('div', { class: 'folder-row' }, [
-        button(folder.id, folder.name, folder.id.split('/').length - 1),
-        el('span', { class: 'folder-tools' }, [
-          el('button', { class: 'icon', title: 'New folder inside', text: '+', onclick: () => newFolder(folder.id) }),
-          el('button', { class: 'icon', title: 'Rename folder', text: '✎', onclick: () => renameFolder(folder) }),
-          el('button', { class: 'icon', title: 'Delete empty folder', text: '✕', onclick: () => deleteFolder(folder) })
-        ])
-      ]));
+    nav.append(row({ id: INBOX, label: 'Inbox', iconName: 'inbox', kind: 'inbox' }));
+    const walk = (parent, depth) => {
+      const level = folders.filter((folder) => folder.parent === parent).sort((a, b) => a.name.localeCompare(b.name));
+      for (const folder of level) {
+        nav.append(row({ id: folder.id, label: folder.name, iconName: 'folder', depth, folder }));
+        if (!collapsed.has(folder.id)) walk(folder.id, depth + 1);
+      }
+    };
+    walk('', 0);
+    if (!folders.length) {
+      nav.append(el('button', { class: 'btn ghost small', type: 'button', style: 'margin:6px 8px', onclick: () => newFolder('') }, [icon('folder-plus'), 'Make your first folder']));
     }
     const tags = [...new Set(meetings.flatMap((meeting) => meeting.tags))].sort();
     if (tags.length) {
       nav.append(el('div', { class: 'folder-group', text: 'Tags' }));
-      for (const tag of tags) nav.append(button('tag:' + tag, '#' + tag));
+      for (const tag of tags) nav.append(row({ id: 'tag:' + tag, label: tag, iconName: 'tag', kind: 'tag' }));
     }
   }
 
   async function newFolder(parent) {
-    const values = await ask({ title: parent ? `New folder in ${parent}` : 'New folder', fields: [{ name: 'name', label: 'Name', required: true }], ok: 'Create' });
+    const values = await ask({
+      title: parent ? `New folder in “${parent.split('/').pop()}”` : 'New folder',
+      text: 'For a project, a client or a series of meetings. Drag meetings onto it to file them.',
+      fields: [{ name: 'name', label: 'Name', required: true, placeholder: 'e.g. Acme' }],
+      ok: 'Create'
+    });
     if (!values) return;
     const result = await attempt(() => post('/api/folder/create', { parent, name: values.name }), 'Could not create the folder');
-    if (result) await loadLibrary();
+    if (!result) return;
+    if (parent) {
+      collapsed.delete(parent);
+      saveCollapsed();
+    }
+    toast(`Folder “${result.id.split('/').pop()}” created`);
+    await loadLibrary();
   }
 
   async function renameFolder(folder) {
@@ -301,7 +620,7 @@
   }
 
   async function deleteFolder(folder) {
-    const values = await ask({ title: `Delete "${folder.name}"?`, text: 'Only an empty folder can be deleted.', ok: 'Delete', danger: true });
+    const values = await ask({ title: `Delete “${folder.name}”?`, text: 'Only an empty folder can be deleted. Move its meetings out first.', ok: 'Delete', danger: true });
     if (!values) return;
     const result = await attempt(() => post('/api/folder/delete', { id: folder.id }), 'Could not delete the folder');
     if (result) await loadLibrary();
@@ -317,9 +636,11 @@
     return sorted.sort((a, b) => b.startedAt - a.startedAt);
   }
 
+  /** Searching looks in every folder; otherwise the inbox, a folder or a tag. */
   function visibleMeetings() {
-    let meetings = state.library.meetings.filter((meeting) => state.view === 'storage' || inFolder(meeting, state.folder));
+    let meetings = state.library.meetings;
     if (state.results) meetings = meetings.filter((meeting) => state.results.has(meeting.id));
+    else if (state.view !== 'storage') meetings = meetings.filter((meeting) => inFolder(meeting, state.folder));
     return sortMeetings(meetings);
   }
 
@@ -330,12 +651,17 @@
     const storage = state.view === 'storage';
 
     const folder = state.library.folders.find((entry) => entry.id === state.folder);
+    const inbox = !state.results && !storage && state.folder === INBOX;
     $('listTitle').textContent = state.results
       ? `${meetings.length} result${meetings.length === 1 ? '' : 's'} for “${state.query}”`
       : storage ? 'Storage'
-        : state.folder.startsWith('tag:') ? '#' + state.folder.slice(4)
-          : state.folder === '/' ? 'Not in a folder'
-            : folder ? folder.name : 'All meetings';
+        : state.folder.startsWith('tag:') ? state.folder.slice(4)
+          : inbox ? 'Inbox'
+            : folder ? folder.name : 'Inbox';
+    setIcon($('listTitle').parentElement, state.results ? 'search' : storage ? 'drive' : state.folder.startsWith('tag:') ? 'tag' : inbox ? 'inbox' : 'folder');
+    $('listHint').textContent = state.results ? 'Searching every folder.'
+      : inbox ? (meetings.length ? 'New meetings land here. When you are done with one, drag it onto its folder.' : '')
+        : folder ? `${folder.id.includes('/') ? folder.id.replace(/\//g, ' › ') : ''}` : '';
     $('sort').hidden = storage;
     $('storagePanel').hidden = !storage;
     if (storage) {
@@ -345,16 +671,19 @@
       $('storageTotals').textContent = `${fmtBytes(total)} in ${all.length} meetings, of which ${fmtBytes(audio)} is audio.`;
     }
     $('emptyList').hidden = meetings.length > 0;
-    $('emptyList').textContent = state.results ? 'Nothing matches.' : 'No meetings here yet.';
+    $('emptyList').replaceChildren(
+      icon(state.results ? 'search' : inbox ? 'check' : 'folder'),
+      state.results ? 'Nothing matches.' : inbox ? 'Inbox zero. Every meeting is filed.' : 'No meetings here yet. Drag some in from the inbox.'
+    );
 
     const terms = queryTerms(state.query);
     for (const meeting of meetings) {
       const pills = [];
-      if (meeting.state) pills.push(el('span', { class: 'pill state', text: meeting.state }));
-      if (meeting.hasFinal) pills.push(el('span', { class: 'pill final', text: 'final' }));
-      else if (meeting.hasLive) pills.push(el('span', { class: 'pill', text: 'live only' }));
+      if (meeting.state) pills.push(el('span', { class: 'pill ' + (meeting.state === 'recording' ? 'rec' : 'state'), text: meeting.state }));
+      if (meeting.hasFinal) pills.push(el('span', { class: 'pill final' }, [icon('check'), 'final']));
+      else if (meeting.hasLive) pills.push(el('span', { class: 'pill live', text: 'live only' }));
       if (meeting.prefix) pills.push(el('span', { class: 'pill', text: meeting.prefix }));
-      for (const tag of meeting.tags) pills.push(el('span', { class: 'pill', text: '#' + tag }));
+      for (const tag of meeting.tags) pills.push(el('span', { class: 'pill tag', text: '#' + tag }));
 
       const pick = el('input', {
         type: 'checkbox',
@@ -370,15 +699,16 @@
       });
       pick.checked = state.selected.has(meeting.id);
 
-      const body = el('div', {}, [
+      const body = el('div', { style: 'min-width:0' }, [
         el('div', { class: 'row1' }, [
           el('span', { class: 'name', text: meeting.title || meeting.name, title: meeting.name }),
-          el('span', { class: 'when', text: new Date(meeting.startedAt).toLocaleDateString() })
+          el('span', { class: 'when', text: new Date(meeting.startedAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) })
         ]),
         el('div', { class: 'row2' }, [
           el('span', { text: new Date(meeting.startedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) }),
           meeting.durationMs ? el('span', { text: fmtDuration(meeting.durationMs) }) : null,
           el('span', { text: storage ? `${fmtBytes(meeting.bytes)} (audio ${fmtBytes(meeting.audioBytes)})` : fmtBytes(meeting.bytes) }),
+          (state.results || storage) && meeting.parent ? el('span', { class: 'where' }, [icon('folder'), meeting.parent.split('/').pop()]) : null,
           ...pills
         ])
       ]);
@@ -389,13 +719,25 @@
           body.append(node);
         }
       }
-      list.append(el('li', {
+      const item = el('li', {
         class: 'meeting' + (state.meeting && state.meeting.id === meeting.id ? ' active' : ''),
         dataset: { id: meeting.id },
         tabindex: '0',
+        draggable: meeting.state ? null : 'true',
+        title: meeting.state ? null : 'Drag onto a folder to move it',
         onclick: () => openMeeting(meeting.id),
         onkeydown: (event) => { if (event.key === 'Enter') openMeeting(meeting.id); }
-      }, [pick, body]));
+      }, [pick, body]);
+      item.addEventListener('dragstart', (event) => {
+        // Dragging a selected meeting takes the whole selection along.
+        const ids = state.selected.has(meeting.id)
+          ? [...state.selected].filter((id) => !(byId(id) || {}).state)
+          : [meeting.id];
+        startDrag(event, { kind: 'meetings', ids }, item);
+        if (ids.length > 1) list.querySelectorAll('.meeting').forEach((node) => { if (ids.includes(node.dataset.id)) node.classList.add('dragging'); });
+      });
+      item.addEventListener('dragend', endDrag);
+      list.append(item);
     }
     renderBulk();
   }
@@ -492,6 +834,13 @@
     })));
     const skipped = ids.length - withAudio.length;
     const edited = withAudio.some((id) => (byId(id) || {}).hasFinal);
+    // Glossaries: keep each meeting's own, use none, or pick project glossaries.
+    const projects = await projectGlossaries();
+    let current = [];
+    if (withAudio.length === 1) {
+      const own = await attempt(() => api('/api/glossary?id=' + encodeURIComponent(withAudio[0])));
+      current = own ? own.glossaries : [];
+    }
     const values = await ask({
       title: withAudio.length === 1 ? `Re-run “${nameOf(withAudio[0])}”` : `Re-run ${withAudio.length} meetings`,
       text: [
@@ -503,18 +852,33 @@
         { name: 'model', label: 'Model', type: 'select', value: '', options: modelOptions },
         { name: 'language', label: 'Language', type: 'select', value: '', options: [settings].concat(LANGUAGES.map(([value, label]) => ({ value, label }))) },
         { name: 'mode', label: 'Mode', type: 'select', value: '', options: [settings, { value: 'fast', label: 'Fast (chunked, in parallel)' }, { value: 'quality', label: 'Quality (one continuous decode)' }] },
-        { name: 'diffModel', label: 'Cross-check with a second model', type: 'select', value: 'settings', options: [{ value: 'settings', label: 'As in Settings' }, { value: 'none', label: 'No cross-check' }].concat(models.map((model) => ({ value: model.id, label: model.label }))) }
+        { name: 'diffModel', label: 'Cross-check with a second model', type: 'select', value: 'settings', options: [{ value: 'settings', label: 'As in Settings' }, { value: 'none', label: 'No cross-check' }].concat(models.map((model) => ({ value: model.id, label: model.label }))) },
+        {
+          name: 'glossaryMode', label: 'Glossary', type: 'select', value: 'keep',
+          options: [
+            { value: 'keep', label: withAudio.length === 1 ? 'Keep this meeting’s glossary' + (current.length ? ` (${current.join(', ')})` : '') : 'Keep each meeting’s own glossary' },
+            { value: 'pick', label: 'Use the project glossaries ticked below' },
+            { value: 'none', label: 'No glossary' }
+          ]
+        },
+        { name: 'glossaries', label: 'Project glossaries', type: 'checks', icon: 'book', value: current, options: projects.map((glossary) => ({ value: glossary.name, label: glossary.name })), empty: 'No project glossaries yet (see the Glossaries page).' }
       ],
       ok: 'Re-run'
     });
     if (!values) return null;
+    // Ticking a glossary means "use these", even if the menu was left alone.
+    const glossaryMode = values.glossaryMode === 'keep' && values.glossaries.join() !== current.join() ? 'pick' : values.glossaryMode;
     const overrides = {};
     if (values.model) overrides.model = values.model;
     if (values.language) overrides.language = values.language;
     if (values.mode) overrides.mode = values.mode;
     if (values.diffModel === 'none') overrides.diffModel = '';
     else if (values.diffModel !== 'settings') overrides.diffModel = values.diffModel;
-    const result = await attempt(() => post('/api/rerun', { ids: withAudio, overrides }), 'Could not start the re-run');
+    const payload = { ids: withAudio, overrides };
+    if (glossaryMode === 'none') payload.glossaries = [];
+    if (glossaryMode === 'pick') payload.glossaries = values.glossaries;
+    const result = await attempt(() => post('/api/rerun', payload), 'Could not start the re-run');
+    if (result && payload.glossaries && state.meeting && withAudio.includes(state.meeting.id)) loadGlossary();
     if (result) {
       toast(`Queued ${result.queued} final pass${result.queued === 1 ? '' : 'es'}`);
       loadQueue();
@@ -545,7 +909,7 @@
     const open = (id) => (id ? () => openMeeting(id) : null);
     const rows = [];
     if (upload) {
-      rows.push(el('h4', { text: `Uploading ${upload.name}… ${Math.round(upload.pct * 100)}%` }),
+      rows.push(el('h4', {}, [icon('upload'), `Uploading ${upload.name}… ${Math.round(upload.pct * 100)}%`]),
         el('div', { class: 'bar' }, el('span', { style: `width:${Math.round(upload.pct * 100)}%` })));
     }
     if (queue.running) {
@@ -553,7 +917,7 @@
       rows.push(el('div', { class: 'job' }, [
         el('span', { class: 'name', text: queue.running.name, title: 'Open', onclick: open(queue.running.id) }),
         el('span', { class: 'opts', text: overridesText(queue.running.overrides) }),
-        queue.running.id ? el('button', { class: 'icon', title: 'Cancel this pass', text: '✕', onclick: () => queueAction('cancel', queue.running.id) }) : null
+        queue.running.id ? iconButton('x', 'Cancel this pass', () => queueAction('cancel', queue.running.id), 'danger') : null
       ]));
       rows.push(el('div', { class: 'muted', text: queue.message || `Transcribing… ${pct}%` }),
         el('div', { class: 'bar' }, el('span', { style: `width:${pct}%` })));
@@ -561,14 +925,14 @@
       rows.push(el('div', { text: queue.last }));
     }
     const jobs = queue.jobs || [];
-    if (jobs.length) rows.push(el('h4', { text: `Waiting (${jobs.length})`, style: 'margin-top:8px' }));
+    if (jobs.length) rows.push(el('h4', { style: 'margin-top:8px' }, [icon('clock'), `Waiting (${jobs.length})`]));
     jobs.forEach((job, index) => {
       rows.push(el('div', { class: 'job' }, [
         el('span', { class: 'name', text: job.name, title: 'Open', onclick: open(job.id) }),
         el('span', { class: 'opts', text: overridesText(job.overrides) }),
-        job.id ? el('button', { class: 'icon', title: 'Earlier', text: '↑', disabled: index === 0, onclick: () => queueAction('move', job.id, -1) }) : null,
-        job.id ? el('button', { class: 'icon', title: 'Later', text: '↓', disabled: index === jobs.length - 1, onclick: () => queueAction('move', job.id, 1) }) : null,
-        job.id ? el('button', { class: 'icon', title: 'Remove from the queue', text: '✕', onclick: () => queueAction('remove', job.id) }) : null
+        job.id && index > 0 ? iconButton('arrow-up', 'Earlier', () => queueAction('move', job.id, -1)) : null,
+        job.id && index < jobs.length - 1 ? iconButton('arrow-down', 'Later', () => queueAction('move', job.id, 1)) : null,
+        job.id ? iconButton('x', 'Remove from the queue', () => queueAction('remove', job.id), 'danger') : null
       ]));
     });
     box.replaceChildren(...rows);
@@ -613,7 +977,7 @@
     }
     const durationMs = await audioDuration(file);
     const status = await attempt(() => api('/api/status'));
-    const realFolder = state.view === 'list' && state.folder && !state.folder.startsWith('tag:') && state.folder !== '/' ? state.folder : '';
+    const realFolder = state.view === 'list' && state.folder !== INBOX && !state.folder.startsWith('tag:') ? state.folder : '';
     const values = await ask({
       title: 'Import a recording',
       text: `${file.name} · ${fmtBytes(file.size)}${durationMs ? ' · ' + fmtClock(durationMs) : ''}\nA copy is stored as a new meeting; the original file is not touched.`,
@@ -726,15 +1090,17 @@
     $('placeholder').hidden = true;
     $('meetingView').hidden = false;
     $('meetingTitle').textContent = meeting.title || meeting.name;
-    $('meetingMeta').textContent = [fmtDate(meeting.startedAt), fmtDuration(meeting.durationMs), meeting.parent ? 'in ' + meeting.parent : '']
+    $('meetingMeta').textContent = [fmtDate(meeting.startedAt), fmtDuration(meeting.durationMs)]
       .filter(Boolean).join(' · ');
     const badges = $('meetingBadges');
     badges.replaceChildren();
-    if (meeting.state) badges.append(el('span', { class: 'pill state', text: meeting.state }));
-    badges.append(el('span', { class: 'pill' + (meeting.source === 'final' ? ' final' : ''), text: meeting.source === 'final' ? 'final transcript' : meeting.source === 'live' ? 'live transcript' : 'no transcript' }));
-    for (const tag of meeting.tags) badges.append(el('span', { class: 'pill', text: '#' + tag }));
+    if (meeting.state) badges.append(el('span', { class: 'pill ' + (meeting.state === 'recording' ? 'rec' : 'state'), text: meeting.state }));
+    badges.append(meeting.source === 'final' ? el('span', { class: 'pill final' }, [icon('check'), 'final transcript'])
+      : el('span', { class: 'pill' + (meeting.source === 'live' ? ' live' : ''), text: meeting.source === 'live' ? 'live transcript' : 'no transcript' }));
+    badges.append(el('span', { class: 'pill' }, [icon(meeting.parent ? 'folder' : 'inbox'), meeting.parent ? meeting.parent.split('/').pop() : 'Inbox']));
+    for (const tag of meeting.tags) badges.append(el('span', { class: 'pill tag', text: '#' + tag }));
     const busy = Boolean(meeting.state);
-    for (const button of ['renameBtn', 'moveBtn', 'deleteSelect', 'editMode', 'addMarkerBtn']) $(button).disabled = busy;
+    for (const button of ['renameBtn', 'moveBtn', 'deleteBtn', 'editMode', 'addMarkerBtn']) $(button).disabled = busy;
     $('rerunBtn').disabled = !meeting.hasAudio || meeting.state === 'recording';
     $('rerunBtn').title = meeting.hasAudio ? 'Transcribe the archived audio again, optionally with another model or language' : 'This meeting has no archived audio';
     if (busy) $('editMode').checked = false;
@@ -808,23 +1174,18 @@
     const at = { index, startedAt: entry.startedAt };
     if (entry.kind === 'marker') {
       return el('span', { class: 'line-tools' }, [
-        el('button', { class: 'icon', title: 'Delete marker', text: '✕', onclick: (event) => { event.stopPropagation(); edit({ op: 'marker-delete', ...at }); } })
+        iconButton('trash', 'Delete marker', (event) => { event.stopPropagation(); edit({ op: 'marker-delete', ...at }); }, 'danger')
       ]);
     }
     if (entry.kind !== 'speech') return el('span');
     return el('span', { class: 'line-tools' }, [
-      el('button', { class: 'icon', title: 'Edit text', text: '✎', onclick: (event) => { event.stopPropagation(); editText(event.currentTarget.closest('.line'), entry, index); } }),
-      el('button', { class: 'icon', title: 'Merge with the next line', text: '⤓', onclick: (event) => { event.stopPropagation(); edit({ op: 'merge', ...at }); } }),
-      el('button', {
-        class: 'icon',
-        title: 'Delete line',
-        text: '✕',
-        onclick: async (event) => {
-          event.stopPropagation();
-          const values = await ask({ title: 'Delete this line?', text: entry.text, ok: 'Delete', danger: true });
-          if (values) edit({ op: 'delete', ...at });
-        }
-      })
+      iconButton('pencil', 'Edit text', (event) => { event.stopPropagation(); editText(event.currentTarget.closest('.line'), entry, index); }),
+      iconButton('merge-down', 'Merge with the next line', (event) => { event.stopPropagation(); edit({ op: 'merge', ...at }); }),
+      iconButton('trash', 'Delete line', async (event) => {
+        event.stopPropagation();
+        const values = await ask({ title: 'Delete this line?', text: entry.text, ok: 'Delete', danger: true });
+        if (values) edit({ op: 'delete', ...at });
+      }, 'danger')
     ]);
   }
 
@@ -846,8 +1207,8 @@
     const tools = row.querySelector('.line-tools');
     if (tools) tools.remove();
     row.append(el('div', { class: 'edit-buttons' }, [
-      el('button', { class: 'btn primary small', text: 'Save', onclick: (event) => { event.stopPropagation(); save(); } }),
-      el('button', { class: 'btn ghost small', text: 'Cancel', onclick: (event) => { event.stopPropagation(); cancel(); } }),
+      button('check', 'Save', (event) => { event.stopPropagation(); save(); }, 'primary small'),
+      button('x', 'Cancel', (event) => { event.stopPropagation(); cancel(); }, 'ghost small'),
       el('span', { class: 'muted', text: 'Enter saves · Esc cancels. Word timings for this line are dropped.' })
     ]));
     row.onclick = null;
@@ -884,14 +1245,14 @@
       if (entry.kind === 'screenshot') {
         box.append(el('div', { class: 'event', dataset: { index }, onclick: () => seekTo(entry.startedAt) }, [
           time,
-          el('div', {}, ['Screenshot ' + entry.text, el('img', { src: mediaUrl(meeting.id, entry.text), alt: 'Screenshot ' + entry.text, loading: 'lazy' })]),
+          el('div', {}, [el('span', { class: 'marker' }, [icon('monitor'), 'Screenshot ' + entry.text]), el('img', { src: mediaUrl(meeting.id, entry.text), alt: 'Screenshot ' + entry.text, loading: 'lazy' })]),
           editing ? el('span') : null
         ]));
         return;
       }
       if (entry.kind === 'marker') {
         box.append(el('div', { class: 'event', dataset: { index }, onclick: () => seekTo(entry.startedAt) }, [
-          time, el('div', { text: '⚑ Marker' + (entry.text ? ': ' + entry.text : '') }),
+          time, el('div', { class: 'marker' }, [icon('flag'), 'Marker' + (entry.text ? ': ' + entry.text : '')]),
           editing ? lineTools(entry, index) : null
         ]));
         return;
@@ -976,15 +1337,37 @@
 
   // ── Glossary and corrections ──
 
+  /** The project glossaries (the Glossaries page), cached until something changes on disk. */
+  async function projectGlossaries(fresh = false) {
+    if (!state.glossaries || fresh) {
+      const body = await attempt(() => api('/api/glossaries'), 'Could not load the glossaries');
+      state.glossaries = body ? body.glossaries : [];
+    }
+    return state.glossaries;
+  }
+
   async function loadGlossary() {
     const id = state.meeting.id;
-    const [glossary, corrections] = await Promise.all([
+    const [glossary, corrections, projects] = await Promise.all([
       attempt(() => api('/api/glossary?id=' + encodeURIComponent(id))),
-      attempt(() => api('/api/corrections?id=' + encodeURIComponent(id)))
+      attempt(() => api('/api/corrections?id=' + encodeURIComponent(id))),
+      projectGlossaries()
     ]);
     if (!state.meeting || state.meeting.id !== id) return;
     $('glossaryText').value = glossary ? glossary.text : '';
     $('glossarySaved').textContent = '';
+    $('glossaryApplied').textContent = '';
+    const used = new Set((glossary ? glossary.glossaries : []).map((name) => name.toLowerCase()));
+    const picks = $('meetingGlossaryPicks');
+    picks.replaceChildren(...projects.map((project) => {
+      const box = el('input', { type: 'checkbox', value: project.name });
+      box.checked = used.has(project.name.toLowerCase());
+      return el('label', { class: 'chip', title: `${project.terms} term${project.terms === 1 ? '' : 's'}` }, [box, icon('book'), project.name]);
+    }));
+    if (!projects.length) {
+      picks.append(el('span', { class: 'muted small' }, ['No project glossaries yet. ', el('button', { class: 'btn ghost small', type: 'button', onclick: () => showPage('glossaries') }, [icon('plus'), 'Make one'])]));
+    }
+    $('glossaryApply').disabled = !projects.length;
     state.corrections = corrections ? corrections.rules.map((rule) => ({ ...rule })) : [];
     $('correctionsSaved').textContent = '';
     renderCorrections();
@@ -999,8 +1382,19 @@
       const from = el('input', { type: 'text', value: rule.from, 'aria-label': 'Heard', oninput: (event) => { rule.from = event.target.value; } });
       const to = el('input', { type: 'text', value: rule.to, 'aria-label': 'Correct', oninput: (event) => { rule.to = event.target.value; } });
       table.append(from, el('span', { class: 'arrow', text: '→' }), to,
-        el('button', { class: 'icon', title: 'Remove', text: '✕', onclick: () => { state.corrections.splice(index, 1); renderCorrections(); } }));
+        iconButton('trash', 'Remove', () => { state.corrections.splice(index, 1); renderCorrections(); }, 'danger'));
     });
+  }
+
+  /** Rebuild this meeting's glossary from the ticked project glossaries ([] = none). */
+  async function applyMeetingGlossaries(names) {
+    const id = state.meeting.id;
+    const result = await attempt(() => post('/api/meeting/glossaries', { id, names }), 'Could not change the glossary');
+    if (!result || !state.meeting || state.meeting.id !== id) return;
+    await loadGlossary();
+    $('glossaryApplied').textContent = names.length
+      ? `Using ${result.glossaries.join(', ')}. Re-run the final pass to transcribe with it.`
+      : 'No glossary for this meeting. Re-run the final pass to transcribe without one.';
   }
 
   async function saveCorrections(id, rules) {
@@ -1268,7 +1662,7 @@
       if (player.t >= total) setClock(0);
       player.playing = true;
       player.wallAt = performance.now();
-      $('playBtn').textContent = '❚❚';
+      setIcon($('playBtn'), 'pause');
       $('playBtn').setAttribute('aria-label', 'Pause');
       syncTracks(true);
       schedule();
@@ -1276,7 +1670,7 @@
 
     function pause() {
       player.playing = false;
-      $('playBtn').textContent = '▶';
+      setIcon($('playBtn'), 'play');
       $('playBtn').setAttribute('aria-label', 'Play');
       for (const track of tracks) track.audio.pause();
     }
@@ -1349,22 +1743,25 @@
     else if (state.player) state.player.seekAbs(abs, false);
   }
 
-  // ── Profiles, models, settings ──
+  // ── Pages: glossaries, profiles, models, settings ──
+
+  const PAGES = ['glossaries', 'profiles', 'models', 'settings'];
 
   function showPage(page) {
+    closeMenu();
     state.page = page;
     document.querySelectorAll('.page-link').forEach((link) => link.classList.toggle('active', link.dataset.page === page));
     const paged = page !== 'library';
     document.querySelector('.app').classList.toggle('paged', paged);
     $('pagePane').hidden = !paged;
-    for (const name of ['profiles', 'models', 'settings']) $('page-' + name).hidden = name !== page;
+    for (const name of PAGES) $('page-' + name).hidden = name !== page;
     if (paged && state.player) state.player.pause();
+    if (page === 'glossaries') loadGlossaries();
     if (page === 'profiles') loadProfiles();
     if (page === 'models') loadModels();
     if (page === 'settings') loadSettings();
   }
 
-  const FLAGS = { us: '🇺🇸', gb: '🇬🇧', de: '🇩🇪', tn: '🇹🇳', fr: '🇫🇷', es: '🇪🇸', custom: '⚙️' };
   const languageName = (code) => (LANGUAGES.find(([value]) => value === code) || [code, code])[1];
 
   async function modelCatalog() {
@@ -1381,47 +1778,117 @@
 
   function modelOptions(role, { optional = false, current = '' } = {}) {
     const list = (state.models || []).filter((model) => (model.roles || []).includes(role) || model.custom);
-    const options = list.map((model) => ({ value: model.id, label: model.label + (model.downloaded ? '' : ' (not downloaded)') }));
+    const options = list.map((model) => ({ value: model.id, label: (model.downloaded ? '✓ ' : '') + model.label + (model.downloaded ? '' : ' (not downloaded)') }));
     if (current && !options.some((option) => option.value === current)) options.unshift({ value: current, label: current });
     return optional ? [{ value: '', label: 'None' }].concat(options) : options;
   }
 
+  // ── Glossaries page ──
+
+  async function loadGlossaries(select) {
+    const list = await projectGlossaries(true);
+    if (select !== undefined) state.glossaryOpen = select;
+    if (state.glossaryOpen && !list.some((glossary) => glossary.name === state.glossaryOpen)) state.glossaryOpen = null;
+    if (state.glossaryOpen === undefined || (state.glossaryOpen === null && select === undefined)) state.glossaryOpen = list.length ? list[0].name : null;
+    renderGlossaries();
+  }
+
+  function renderGlossaries() {
+    const list = state.glossaries || [];
+    const open = list.find((glossary) => glossary.name === state.glossaryOpen) || null;
+    const creating = state.glossaryOpen === '';
+    $('glossaryEmpty').hidden = list.length > 0 || creating;
+    $('glossaryList').hidden = !list.length && !creating;
+    $('glossaryEditor').hidden = !open && !creating;
+    $('glossaryList').replaceChildren(...list.map((glossary) => el('button', {
+      class: 'glossary-item' + (glossary.name === state.glossaryOpen ? ' active' : ''),
+      type: 'button',
+      onclick: () => {
+        state.glossaryOpen = glossary.name;
+        renderGlossaries();
+      }
+    }, [icon('book'), el('span', { class: 'label', text: glossary.name }), el('span', { class: 'count', text: `${glossary.terms} term${glossary.terms === 1 ? '' : 's'}` })])));
+    $('glossaryName').value = open ? open.name : '';
+    $('glossaryBody').value = open ? open.text : '';
+    $('glossaryDeleteBtn').hidden = !open;
+    $('glossaryStatus').textContent = creating ? 'A new glossary: give it a name and its terms.' : '';
+    if (creating) $('glossaryName').focus();
+  }
+
+  async function saveProjectGlossary() {
+    const previous = state.glossaryOpen || null;
+    const name = $('glossaryName').value.trim();
+    if (!name) {
+      $('glossaryName').focus();
+      return toast('Give the glossary a name');
+    }
+    const result = await attempt(() => post('/api/glossaries/save', { name, previous, text: $('glossaryBody').value }), 'Could not save the glossary');
+    if (!result) return;
+    await loadGlossaries(result.name);
+    $('glossaryStatus').textContent = 'Saved.';
+  }
+
+  async function deleteProjectGlossary() {
+    const name = state.glossaryOpen;
+    if (!name) return;
+    const values = await ask({ title: `Delete the glossary “${name}”?`, text: 'Meetings that already use it keep their own copy. The file goes to the Recycle Bin.', ok: 'Delete', danger: true });
+    if (!values) return;
+    const result = await attempt(() => post('/api/glossaries/delete', { name }), 'Could not delete the glossary');
+    if (result) await loadGlossaries(null);
+  }
+
+  // ── Profiles page ──
+
   async function loadProfiles() {
-    const [body] = await Promise.all([attempt(() => api('/api/profiles'), 'Could not load the profiles'), modelCatalog()]);
+    const [body] = await Promise.all([attempt(() => api('/api/profiles'), 'Could not load the profiles'), modelCatalog(), projectGlossaries(true)]);
     if (!body) return;
+    state.profiles = body;
     const cards = $('profileCards');
     cards.replaceChildren();
     for (const profile of body.profiles) {
-      const values = profile.values;
+      const values = profile.values || {};
       const active = profile.id === body.active;
+      const none = profile.kind === 'none';
       const glossaryTerms = String(values.glossary || '').split(/[\n,]/).filter((line) => line.trim() && !line.trim().startsWith('#')).length;
-      cards.append(el('div', { class: 'card' + (active ? ' active' : '') }, [
+      const sets = values.glossarySet || [];
+      const glossaryText = [sets.length ? sets.join(', ') : '', glossaryTerms ? `${glossaryTerms} other term${glossaryTerms === 1 ? '' : 's'}` : '']
+        .filter(Boolean).join(' + ') || (values.glossary === undefined && !none ? 'keeps yours' : 'none');
+      const buttons = [];
+      if (!active) buttons.push(button('check', 'Use', () => selectProfile(profile), 'primary small'));
+      if (!none) buttons.push(iconButton('pencil', 'Edit', () => editProfile(profile, active)));
+      buttons.push(iconButton('duplicate', 'Duplicate as a new profile', () => newProfile(profile)));
+      if (profile.kind === 'builtin' && profile.edited) buttons.push(iconButton('refresh', 'Reset to the built-in values', () => resetProfile(profile)));
+      if (profile.kind === 'mine') buttons.push(el('span', { class: 'spacer' }), iconButton('trash', 'Delete this profile', () => deleteProfile(profile), 'danger'));
+      cards.append(el('div', { class: 'card' + (active ? ' active' : '') + (none ? ' none' : '') }, [
         el('div', { class: 'title' }, [
-          el('span', { class: 'flag', text: FLAGS[profile.flag] || '🏳️' }),
-          el('span', { text: profile.label }),
-          active ? el('span', { class: 'pill final', text: 'active' }) : null,
-          profile.edited && profile.id !== 'custom' ? el('span', { class: 'pill', text: 'edited' }) : null
+          flagNode(profile.flag),
+          el('span', { class: 'name', text: profile.label }),
+          active ? el('span', { class: 'pill final' }, [icon('check'), 'active']) : null,
+          profile.kind === 'mine' ? el('span', { class: 'pill', text: 'yours' }) : null,
+          profile.kind === 'builtin' && profile.edited ? el('span', { class: 'pill', text: 'edited' }) : null
         ]),
-        el('div', { class: 'muted', text: profile.summary }),
+        el('div', { class: 'muted small', text: profile.summary }),
         el('dl', {}, [
           el('dt', { text: 'Live' }), el('dd', { text: values.liveTranscription === false ? 'off' : modelLabel(values.whisperModel) }),
-          el('dt', { text: 'Final' }), el('dd', { text: values.offlinePassEnabled === false ? 'off' : modelLabel(values.offlineModel) }),
+          el('dt', { text: 'Final pass' }), el('dd', { text: values.offlinePassEnabled === false ? 'off' : modelLabel(values.offlineModel) }),
           el('dt', { text: 'Language' }), el('dd', { text: languageName(values.whisperLanguage || 'auto') }),
           el('dt', { text: 'Folder name' }), el('dd', { text: values.folderNamePrefix || '(date only)' }),
-          el('dt', { text: 'Glossary' }), el('dd', { text: values.glossary === undefined ? 'keeps yours' : `${glossaryTerms} term${glossaryTerms === 1 ? '' : 's'}` })
+          el('dt', { text: 'Glossary' }), el('dd', { text: glossaryText, title: glossaryText })
         ]),
-        el('div', { class: 'buttons' }, [
-          active ? null : el('button', { class: 'btn primary', text: 'Use', onclick: () => selectProfile(profile) }),
-          el('button', { class: 'btn', text: 'Edit…', onclick: () => editProfile(profile, active) }),
-          profile.edited && profile.id !== 'custom'
-            ? el('button', { class: 'btn ghost', text: 'Reset', title: 'Back to the built-in values', onclick: () => resetProfile(profile) })
-            : null
-        ])
+        el('div', { class: 'buttons' }, buttons)
       ]));
     }
   }
 
   async function selectProfile(profile) {
+    if (profile.kind === 'none') {
+      const values = await ask({
+        title: 'Switch to “No profile”?',
+        text: 'Models, language and recording options go back to the multilingual defaults, and project glossaries are unticked. Your glossary text stays. Changes you make afterwards are not saved into any profile; use “Save current settings as a profile” for that.',
+        ok: 'Switch'
+      });
+      if (!values) return;
+    }
     const result = await attempt(() => post('/api/profiles/select', { id: profile.id }), 'Could not switch the profile');
     if (result) {
       toast(`${profile.label} is active`);
@@ -1436,35 +1903,76 @@
     if (result) loadProfiles();
   }
 
+  async function deleteProfile(profile) {
+    const values = await ask({ title: `Delete “${profile.label}”?`, text: 'Your current settings stay as they are.', ok: 'Delete', danger: true });
+    if (!values) return;
+    const result = await attempt(() => post('/api/profiles/delete', { id: profile.id }), 'Could not delete the profile');
+    if (result) loadProfiles();
+  }
+
+  /** A new profile: from the current settings, or a copy of `source`. */
+  async function newProfile(source = null) {
+    const values = await ask({
+      title: source ? `Duplicate “${source.label}”` : 'Save current settings as a profile',
+      text: source ? 'A profile of your own with the same values, to change as you like.' : 'Takes your current models, language, glossaries and recording options.',
+      fields: [
+        { name: 'label', label: 'Name', required: true, value: source ? `${source.label} (copy)` : '', placeholder: 'e.g. Acme weekly' },
+        { name: 'flag', label: 'Flag', type: 'flags', value: source && source.flag !== 'none' ? source.flag : 'custom' },
+        { name: 'activate', label: 'Make it the active profile', type: 'checkbox', value: !source }
+      ],
+      ok: 'Create'
+    });
+    if (!values) return;
+    const result = await attempt(() => post('/api/profiles/create', { label: values.label, flag: values.flag, from: source ? source.id : null, activate: values.activate }), 'Could not create the profile');
+    if (result) {
+      toast(`Profile “${values.label.trim()}” created`);
+      loadProfiles();
+    }
+  }
+
   async function editProfile(profile, active) {
     const values = profile.values;
     const languages = LANGUAGES.map(([value, label]) => ({ value, label }));
+    const projects = state.glossaries || [];
+    const mine = profile.kind === 'mine';
     const answer = await ask({
       title: `Edit “${profile.label}”`,
       text: active ? 'This is the active profile: saving also changes your current settings.' : '',
       fields: [
+        mine ? { name: 'label', label: 'Name', value: profile.label, required: true } : null,
+        mine ? { name: 'flag', label: 'Flag', type: 'flags', value: profile.flag } : null,
         { name: 'liveTranscription', label: 'Transcribe live while recording', type: 'checkbox', value: values.liveTranscription !== false },
         { name: 'whisperModel', label: 'Live model', type: 'select', value: values.whisperModel, options: modelOptions('live', { current: values.whisperModel }) },
         { name: 'whisperLanguage', label: 'Language', type: 'select', value: values.whisperLanguage || 'auto', options: languages },
         { name: 'offlinePassEnabled', label: 'Run the final pass after every meeting', type: 'checkbox', value: values.offlinePassEnabled !== false },
-        { name: 'offlineModel', label: 'Final model', type: 'select', value: values.offlineModel, options: modelOptions('final', { current: values.offlineModel }) },
+        { name: 'offlineModel', label: 'Final-pass model', type: 'select', value: values.offlineModel, options: modelOptions('final', { current: values.offlineModel }) },
         { name: 'archiveAudio', label: 'Keep the audio of each meeting', type: 'checkbox', value: values.archiveAudio !== false },
         { name: 'showTranscriptOnRecord', label: 'Show the transcript panel when recording starts', type: 'checkbox', value: values.showTranscriptOnRecord !== false },
         { name: 'folderNamePrefix', label: 'Meeting folder name', value: values.folderNamePrefix || '' },
-        { name: 'glossary', label: 'Glossary (leave empty to keep whatever glossary is in use)', type: 'textarea', rows: 5, value: values.glossary || '' }
-      ],
+        { name: 'glossarySet', label: 'Project glossaries for new meetings', type: 'checks', icon: 'book', value: values.glossarySet || [], options: projects.map((glossary) => ({ value: glossary.name, label: glossary.name })), empty: 'No project glossaries yet (see the Glossaries page).' },
+        { name: 'glossary', label: 'Other glossary terms (leave empty to keep whatever is in use)', type: 'textarea', rows: 4, value: values.glossary || '' }
+      ].filter(Boolean),
       ok: 'Save'
     });
     if (!answer) return;
     const update = { ...answer };
+    const meta = {};
+    if (mine) {
+      meta.label = update.label;
+      meta.flag = update.flag;
+    }
+    delete update.label;
+    delete update.flag;
     // An untouched empty glossary means "keep the current one", not "clear it".
     if (!update.glossary.trim() && values.glossary === undefined) delete update.glossary;
-    const result = await attempt(() => post('/api/profiles/update', { id: profile.id, values: update }), 'Could not save the profile');
+    const result = await attempt(() => post('/api/profiles/update', { id: profile.id, values: update, ...meta }), 'Could not save the profile');
     if (result) {
-      toast(`${profile.label} saved`);
+      toast(`${meta.label || profile.label} saved`);
       loadProfiles();
     }
   }
+
+  // ── Models page ──
 
   async function loadModels() {
     const models = await modelCatalog();
@@ -1476,35 +1984,41 @@
   function renderModels(models) {
     const box = $('modelList');
     box.replaceChildren();
-    const groups = [['live', 'For the live transcript'], ['final', 'For the final pass'], ['finetune', 'Fine-tuned for one language'], ['custom', 'Other models in the cache']];
-    for (const [category, title] of groups) {
-      const list = models.filter((model) => (model.custom ? 'custom' : model.category || 'final') === category);
-      if (!list.length) continue;
-      box.append(el('h2', { text: title }));
+    const groups = [
+      ['live', 'mic', 'For the live transcript', 'Small and fast, so the transcript keeps up while you talk.'],
+      ['final', 'sparkles', 'For the final pass', 'Big and accurate; runs over the recording after the meeting.']
+    ];
+    for (const [category, iconName, title, hint] of groups) {
+      const list = models.filter((model) => (model.category === 'live' ? 'live' : 'final') === category)
+        // On this computer first, then the rest in catalog order.
+        .sort((a, b) => Number(b.downloaded || b.downloading) - Number(a.downloaded || a.downloading));
+      const have = list.filter((model) => model.downloaded).length;
+      box.append(el('div', { class: 'model-group-head' }, [el('h2', {}, [icon(iconName), title, el('span', { class: 'count', text: `${have} of ${list.length} on this computer` })])]),
+        el('p', { class: 'muted small', text: hint, style: 'margin:-6px 0 10px' }));
       for (const model of list) box.append(modelRow(model));
     }
   }
 
   function modelRow(model) {
     const roles = model.roles || [];
-    const uses = { live: 'live', final: 'final', diff: 'cross-check' };
+    const uses = { live: 'live', final: 'final pass', diff: 'cross-check' };
     const inUse = (model.inUse || []).map((role) => uses[role]).filter(Boolean);
     const minutes = model.estimate && model.estimate.minutes ? Math.max(1, Math.round(model.estimate.minutes)) : null;
     const progress = model.downloading ? Math.round((model.progress || 0) * 100) : null;
     const side = [];
-    if (inUse.length) side.push(el('span', { class: 'pill final', text: 'in use: ' + inUse.join(', ') }));
+    if (inUse.length) side.push(el('span', { class: 'pill final' }, [icon('check'), 'in use: ' + inUse.join(', ')]));
     if (model.downloading) {
-      side.push(el('span', { class: 'muted', text: `Downloading… ${progress}%` }));
+      side.push(el('span', { class: 'muted small', text: `Downloading… ${progress}%` }));
     } else if (!model.downloaded) {
-      side.push(el('button', { class: 'btn primary small', text: `Download${model.sizeMb ? ' (' + fmtBytes(model.sizeMb * 1e6) + ')' : ''}`, onclick: () => modelAction('download', model) }));
+      side.push(button('download', `Download${model.sizeMb ? ' · ' + fmtBytes(model.sizeMb * 1e6) : ''}`, () => modelAction('download', model), 'small'));
     } else {
-      if (roles.includes('live') && !(model.inUse || []).includes('live')) side.push(el('button', { class: 'btn small', text: 'Use live', onclick: () => useModel(model, 'live') }));
-      if (roles.includes('final') && !(model.inUse || []).includes('final')) side.push(el('button', { class: 'btn small', text: 'Use for final', onclick: () => useModel(model, 'final') }));
-      side.push(el('button', { class: 'btn ghost small danger', text: 'Delete', onclick: () => modelAction('delete', model) }));
+      if (roles.includes('live') && !(model.inUse || []).includes('live')) side.push(button('mic', 'Use live', () => useModel(model, 'live'), 'small'));
+      if (roles.includes('final') && !(model.inUse || []).includes('final')) side.push(button('sparkles', 'Use for final', () => useModel(model, 'final'), 'small'));
+      side.push(iconButton('trash', 'Delete from this computer', () => modelAction('delete', model), 'danger'));
     }
-    return el('div', { class: 'model', dataset: { id: model.id } }, [
+    return el('div', { class: 'model' + (model.downloaded ? ' have' : ''), dataset: { id: model.id } }, [
       el('div', {}, [
-        el('div', { class: 'name', text: model.label }),
+        el('div', { class: 'name' }, [model.label, model.custom ? el('span', { class: 'pill', text: 'from Hugging Face' }) : null]),
         el('div', { class: 'note', text: [model.note, model.downloaded ? fmtBytes(model.bytes) + ' on disk' : '', minutes && roles.includes('final') ? `≈ ${minutes} min per hour of meeting` : ''].filter(Boolean).join(' · ') })
       ]),
       el('div', { class: 'side' }, side),
@@ -1512,13 +2026,14 @@
     ]);
   }
 
-  async function modelAction(action, model) {
+  async function modelAction(action, model, options = {}) {
     if (action === 'delete') {
       const values = await ask({ title: `Delete ${model.label}?`, text: `Frees ${fmtBytes(model.bytes)}. You can download it again later.`, ok: 'Delete', danger: true });
       if (!values) return;
     }
-    const result = await attempt(() => post('/api/models/' + action, { id: model.id }), action === 'delete' ? 'Could not delete the model' : 'Could not start the download');
+    const result = await attempt(() => post('/api/models/' + action, { id: model.id, ...options }), action === 'delete' ? 'Could not delete the model' : 'Could not start the download');
     if (result) loadModels();
+    return result;
   }
 
   async function useModel(model, role) {
@@ -1529,8 +2044,64 @@
     }
   }
 
+  async function searchHub(event) {
+    if (event) event.preventDefault();
+    const query = $('hubQuery').value.trim();
+    const box = $('hubResults');
+    box.replaceChildren(el('div', { class: 'muted small', text: 'Searching Hugging Face…' }));
+    const body = await attempt(() => api('/api/hub?q=' + encodeURIComponent(query)), 'Search failed');
+    if (!body) {
+      box.replaceChildren();
+      return;
+    }
+    if (!state.models) await modelCatalog();
+    const known = new Set((state.models || []).map((model) => model.repo));
+    if (!body.results.length) {
+      box.replaceChildren(el('div', { class: 'muted small', text: 'No Whisper models that MeetScribe can use matched. Try fewer words.' }));
+      return;
+    }
+    box.replaceChildren(...body.results.map((row) => {
+      const have = known.has(row.repo);
+      const facts = [
+        el('span', {}, [icon('download'), ' ' + row.downloads.toLocaleString()]),
+        row.likes ? el('span', {}, [icon('heart'), ' ' + row.likes]) : null,
+        row.updated ? el('span', { text: 'updated ' + new Date(row.updated).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) }) : null,
+        row.languages.length ? el('span', {}, [icon('globe'), ' ' + row.languages.join(', ')]) : null,
+        row.sizeMb ? el('span', { text: '≈ ' + fmtBytes(row.sizeMb * 1e6) }) : null
+      ];
+      const add = (category) => async () => {
+        const convert = row.format === 'transformers';
+        if (convert) {
+          const ok = await ask({
+            title: `Convert ${row.repo}?`,
+            text: 'This model is published as Transformers weights. MeetScribe downloads them (about twice the final size), converts them to CTranslate2 and deletes the originals. That takes a while; the progress shows on this page.',
+            ok: 'Download and convert'
+          });
+          if (!ok) return;
+        }
+        const result = await modelAction('download', { id: row.repo, label: row.repo }, { convert, category });
+        if (result) toast(`Downloading ${row.repo}; it shows under “${category === 'live' ? 'For the live transcript' : 'For the final pass'}”`);
+      };
+      return el('div', { class: 'hub-row' }, [
+        el('div', {}, [
+          el('div', { class: 'repo' }, [
+            el('span', { text: row.repo }),
+            el('span', { class: 'pill ' + (row.format === 'ct2' ? 'final' : 'state'), text: row.format === 'ct2' ? 'ready' : 'needs conversion' })
+          ]),
+          el('div', { class: 'facts' }, facts)
+        ]),
+        el('div', { class: 'side' }, have ? [el('span', { class: 'pill final' }, [icon('check'), 'in your list'])] : [
+          button('mic', 'Add for live', add('live'), row.category === 'live' ? 'primary small' : 'small'),
+          button('sparkles', 'Add for final', add('final'), row.category === 'final' ? 'primary small' : 'small')
+        ])
+      ]);
+    }));
+  }
+
+  // ── Settings page ──
+
   async function loadSettings() {
-    const [body] = await Promise.all([attempt(() => api('/api/settings'), 'Could not load the settings'), modelCatalog()]);
+    const [body] = await Promise.all([attempt(() => api('/api/settings'), 'Could not load the settings'), modelCatalog(), projectGlossaries(true)]);
     if (!body) return;
     state.settingValues = body.values;
     state.settingSchema = body.schema;
@@ -1545,6 +2116,14 @@
         if (field.type === 'bool') {
           input = el('input', { type: 'checkbox', name: field.key });
           input.checked = Boolean(value);
+        } else if (field.type === 'glossaries') {
+          const chosen = new Set((value || []).map((name) => name.toLowerCase()));
+          const names = (state.glossaries || []).map((glossary) => glossary.name);
+          input = el('div', { class: 'pick-chips', dataset: { key: field.key } }, names.length ? names.map((name) => {
+            const box = el('input', { type: 'checkbox', value: name });
+            box.checked = chosen.has(name.toLowerCase());
+            return el('label', { class: 'chip' }, [box, icon('book'), name]);
+          }) : el('span', { class: 'muted small', text: 'No project glossaries yet.' }));
         } else if (field.type === 'select' || field.type === 'model') {
           const options = field.type === 'model' ? modelOptions(field.role, { optional: field.optional, current: value }) : field.options;
           input = el('select', { name: field.key }, options.map((option) => el('option', { value: option.value, text: option.label })));
@@ -1564,8 +2143,9 @@
           field.help ? el('div', { class: 'help', text: field.help }) : null
         ]);
         input.id = 'setting-' + field.key;
-        input.addEventListener('input', () => row.classList.toggle('changed', String(readField(field, input)) !== String(value)));
-        input.addEventListener('change', () => row.classList.toggle('changed', String(readField(field, input)) !== String(value)));
+        const mark = () => row.classList.toggle('changed', String(readField(field, input)) !== String(value === undefined || value === null ? '' : value));
+        input.addEventListener('input', mark);
+        input.addEventListener('change', mark);
         fieldset.append(row);
       }
       form.append(fieldset);
@@ -1575,6 +2155,7 @@
   function readField(field, input) {
     if (field.type === 'bool') return input.checked;
     if (field.type === 'number') return input.value === '' ? '' : Number(input.value);
+    if (field.type === 'glossaries') return [...input.querySelectorAll('input:checked')].map((box) => box.value);
     return input.value;
   }
 
@@ -1583,7 +2164,7 @@
     const patch = {};
     for (const section of state.settingSchema || []) {
       for (const field of section.fields) {
-        const input = form.elements[field.key];
+        const input = field.type === 'glossaries' ? form.querySelector(`[data-key="${field.key}"]`) : form.elements[field.key];
         if (!input) continue;
         const value = readField(field, input);
         const before = state.settingValues[field.key];
@@ -1602,10 +2183,54 @@
 
   // ── Live updates ──
 
+  // ── Status: is the local server answering, and what is the app doing? ──
+
+  state.server = { up: false, mode: 'app', recording: false };
+
+  function renderStatus() {
+    const { up, mode, recording } = state.server;
+    const dot = $('statusDot');
+    dot.className = 'dot ' + (!up ? 'down' : recording ? 'rec' : 'up');
+    $('statusText').textContent = !up ? 'Server not reachable'
+      : recording ? 'Recording now'
+        : mode === 'library' ? 'Library only · server running'
+          : 'Server running · app open';
+    $('status').title = !up
+      ? 'The library server is not answering. It stops when MeetScribe quits; start MeetScribe or the library shortcut again.'
+      : `The local library server answers at ${location.host}.`;
+    $('openAppBtn').hidden = !up || mode !== 'library';
+  }
+
+  async function loadStatus() {
+    try {
+      const response = await fetch('/api/status', { credentials: 'same-origin' });
+      if (response.status === 403) return expired();
+      const body = await response.json();
+      state.server = { up: true, mode: body.mode || 'app', recording: Boolean(body.recording) };
+    } catch (error) {
+      if (error.message === 'expired') return undefined;
+      state.server.up = false;
+    }
+    renderStatus();
+    return undefined;
+  }
+
+  async function openApp() {
+    const result = await attempt(() => post('/api/app/open', {}), 'Could not open MeetScribe');
+    if (result) {
+      toast('MeetScribe is back');
+      loadStatus();
+    }
+  }
+
   function connectEvents() {
     const source = new EventSource('/api/events');
-    source.onopen = () => { $('connection').textContent = 'Connected to MeetScribe'; };
-    source.onerror = () => { $('connection').textContent = 'Reconnecting to MeetScribe…'; };
+    source.onopen = () => loadStatus();
+    source.onerror = () => {
+      state.server.up = false;
+      renderStatus();
+    };
+    source.addEventListener('status', () => loadStatus());
     let refreshTimer = null;
     const refreshSoon = () => {
       clearTimeout(refreshTimer);
@@ -1617,7 +2242,17 @@
         }
       }, 400);
     };
-    source.addEventListener('library', refreshSoon);
+    source.addEventListener('library', (event) => {
+      let reason = '';
+      try { reason = JSON.parse(event.data).reason || ''; } catch (_) { /* no detail */ }
+      if (/^meeting-(started|stopped)$/.test(reason)) loadStatus();
+      // Glossary files live in the transcript folder too.
+      if (/^glossaries\//.test(reason)) {
+        state.glossaries = null;
+        if (state.page === 'glossaries' && document.activeElement !== $('glossaryBody') && document.activeElement !== $('glossaryName')) loadGlossaries();
+      }
+      refreshSoon();
+    });
     // Changed in the app or another tab: show the new values (a settings form
     // with unsaved edits is left alone).
     source.addEventListener('settings', () => {
@@ -1691,15 +2326,37 @@
       event.target.value = '';
       if (file) importRecording(file);
     });
-    $('exportSelect').addEventListener('change', (event) => {
-      exportMeeting(event.target.value);
-      event.target.value = '';
+    $('exportBtn').addEventListener('click', (event) => openMenu(event.currentTarget, [
+      { icon: 'notes', label: 'Markdown', hint: '.md, with headings and markup', onclick: () => exportMeeting('md') },
+      { icon: 'text', label: 'Plain text', hint: '.txt', onclick: () => exportMeeting('txt') },
+      { icon: 'clock', label: 'Subtitles', hint: '.srt, with timings', onclick: () => exportMeeting('srt') },
+      { icon: 'sparkles', label: 'Text for an LLM', hint: '.txt with a short header', onclick: () => exportMeeting('llm') }
+    ]));
+    $('deleteBtn').addEventListener('click', (event) => openMenu(event.currentTarget, [
+      { icon: 'volume-x', label: 'Delete the audio only', hint: 'The transcript stays; no more re-runs or playback', danger: true, onclick: () => bulk('audio', [state.meeting.id]) },
+      { icon: 'trash', label: 'Delete the whole meeting', hint: 'Transcript, audio, notes: to the Recycle Bin', danger: true, onclick: () => bulk('trash', [state.meeting.id]) }
+    ]));
+    $('dialogCancel').addEventListener('click', () => $('dialog').close('cancel'));
+    $('newFolderBtn').addEventListener('click', () => newFolder(''));
+    $('openAppBtn').addEventListener('click', openApp);
+    $('glossaryApply').addEventListener('click', () => {
+      const names = [...$('meetingGlossaryPicks').querySelectorAll('input:checked')].map((box) => box.value);
+      if (!names.length) return toast('Tick at least one glossary, or pick “No glossary”');
+      return applyMeetingGlossaries(names);
     });
-    $('deleteSelect').addEventListener('change', (event) => {
-      const what = event.target.value;
-      event.target.value = '';
-      if (what) bulk(what === 'audio' ? 'audio' : 'trash', [state.meeting.id]);
+    $('glossaryNone').addEventListener('click', async () => {
+      const values = await ask({ title: 'No glossary for this meeting?', text: 'Its glossary is emptied. The next final pass runs without one, and does not fall back to the glossary in Settings.', ok: 'No glossary' });
+      if (values) applyMeetingGlossaries([]);
     });
+    $('newGlossaryBtn').addEventListener('click', () => {
+      state.glossaryOpen = '';
+      renderGlossaries();
+    });
+    $('glossarySaveBtn').addEventListener('click', saveProjectGlossary);
+    $('glossaryDeleteBtn').addEventListener('click', deleteProjectGlossary);
+    $('newProfileBtn').addEventListener('click', () => newProfile(null));
+    $('hubForm').addEventListener('submit', searchHub);
+    bindFileDrop();
     $('infoForm').addEventListener('submit', saveNotes);
     $('glossarySave').addEventListener('click', async () => {
       const result = await attempt(() => post('/api/meeting/glossary', { id: state.meeting.id, text: $('glossaryText').value }), 'Could not save the glossary');
@@ -1760,6 +2417,10 @@
         $('search').blur();
         return;
       }
+      if (event.key === 'Escape' && !$('menu').hidden) {
+        closeMenu();
+        return;
+      }
       if (typing || $('dialog').open || event.ctrlKey || event.metaKey || event.altKey) return;
       const player = state.player;
       switch (event.key) {
@@ -1811,10 +2472,40 @@
     });
   }
 
+  /** Drop an audio file anywhere on the page to import it. */
+  function bindFileDrop() {
+    let depth = 0;
+    const hasFiles = (event) => [...(event.dataTransfer ? event.dataTransfer.types : [])].includes('Files');
+    window.addEventListener('dragenter', (event) => {
+      if (!hasFiles(event) || dragging) return;
+      depth++;
+      $('dropZone').hidden = false;
+    });
+    window.addEventListener('dragleave', (event) => {
+      if (!hasFiles(event) || dragging) return;
+      depth = Math.max(0, depth - 1);
+      if (!depth) $('dropZone').hidden = true;
+    });
+    window.addEventListener('dragover', (event) => {
+      if (hasFiles(event) && !dragging) event.preventDefault();
+    });
+    window.addEventListener('drop', (event) => {
+      if (!hasFiles(event) || dragging) return;
+      event.preventDefault();
+      depth = 0;
+      $('dropZone').hidden = true;
+      const file = event.dataTransfer.files[0];
+      if (file) importRecording(file);
+    });
+  }
+
   async function start() {
+    hydrateIcons();
+    renderStatus();
     bind();
     await loadLibrary();
     connectEvents();
+    loadStatus();
     loadQueue();
     const id = decodeURIComponent(location.hash.slice(1));
     if (id && byId(id)) openMeeting(id);
