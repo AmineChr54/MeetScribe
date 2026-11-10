@@ -134,6 +134,7 @@ class LibraryService {
       hasAudio: Boolean(meta && (meta.streams || []).length),
       screenshots: files.filter((file) => /\.(png|jpe?g)$/i.test(file)).length,
       bytes: this._size(dir),
+      audioBytes: this._size(path.join(dir, 'audio')),
       state: this._stateOf(dir, busy)
     };
   }
