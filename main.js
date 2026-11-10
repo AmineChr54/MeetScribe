@@ -61,6 +61,7 @@ const profiles = require("./src/core/profiles");
 const libraryService = require("./src/services/library.service");
 const managerServer = require("./src/services/manager-server.service");
 const libraryEdit = require("./src/services/library-edit.service");
+const voiceService = require("./src/services/voice.service");
 const speedStats = require("./src/services/speed-stats.service");
 const windowManager = require("./src/managers/window.manager");
 
@@ -543,6 +544,15 @@ class ApplicationController {
 
   async startRecording() {
     if (transcriptionService.isRecording) return meetingService.getStatus();
+
+    // Enrollment owns the microphone capture; starting a meeting now would
+    // replace it, and the end of enrollment would then stop the meeting's audio.
+    if (voiceService.isEnrolling()) {
+      const message = "Voice enrollment is still recording. Start the meeting when it has finished.";
+      windowManager.broadcastToAllWindows("transcription-error", { message });
+      logger.warn(message);
+      return null;
+    }
 
     if (transcriptionService.isLiveEnabled() && !transcriptionService.isAvailable()) {
       const message =
@@ -1037,7 +1047,66 @@ class ApplicationController {
     }
   }
 
+  // ── Voice labels ──
+
+  voicePaths() {
+    const paths = transcriptionService.getPaths();
+    voiceService.configure(paths);
+    return paths;
+  }
+
+  async enrollVoice(seconds = 25) {
+    if (transcriptionService.isRecording) return { ok: false, error: "Stop the recording first" };
+    const say = (message) => windowManager.broadcastToAllWindows("voice-progress", message);
+    try {
+      this.voicePaths();
+      voiceService.beginEnrollment();
+      const started = await windowManager.runInAudioWindow(
+        `window.__startCapture(${JSON.stringify({
+          system: false,
+          mic: true,
+          systemSource: "loopback",
+          micDeviceLabel: settingsStore.get("micDeviceLabel") || "",
+        })})`
+      );
+      logger.info("Voice enrollment capture started", started);
+      for (let left = seconds; left > 0; left--) {
+        say(`Recording… speak normally, ${left} s left`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await this.stopAudioCapture();
+      say("Analysing your voice…");
+      const result = await voiceService.finishEnrollment();
+      say("Voice saved.");
+      return result;
+    } catch (error) {
+      voiceService.cancelEnrollment();
+      await this.stopAudioCapture();
+      logger.warn("Voice enrollment failed", { error: error.message });
+      say(error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
   setupIPCHandlers() {
+    ipcMain.handle("voice:status", () => {
+      this.voicePaths();
+      return voiceService.status();
+    });
+    ipcMain.handle("voice:setup", async () => {
+      this.voicePaths();
+      const forward = (line) => windowManager.broadcastToAllWindows("voice-progress", line);
+      voiceService.on("progress", forward);
+      try {
+        return { ok: true, ...(await voiceService.setup()) };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      } finally {
+        voiceService.off("progress", forward);
+      }
+    });
+    ipcMain.handle("voice:enroll", (_event, seconds) => this.enrollVoice(Math.min(60, Math.max(15, Number(seconds) || 25))));
+    ipcMain.handle("voice:delete", () => voiceService.deleteVoiceprint());
     ipcMain.handle("profiles:list", () => this.listProfiles());
     ipcMain.handle("profiles:select", (_event, id) => this.selectProfile(id));
     ipcMain.handle("profiles:reset", (_event, id) => this.resetProfile(id));
@@ -1076,6 +1145,8 @@ class ApplicationController {
     // ── Audio engine ──
     ipcMain.on("audio-chunk", (_event, data) => {
       if (data && data.buffer) {
+        // Voice enrollment listens to the mic while no meeting is recording.
+        if (data.streamId === "mic") voiceService.collect(Buffer.from(data.buffer));
         transcriptionService.ingest(data.streamId, Buffer.from(data.buffer));
       }
     });
@@ -1367,6 +1438,7 @@ class ApplicationController {
     meetingService.shutdown();
     transcriptionService.shutdown();
     managerServer.stop();
+    voiceService.shutdown();
     windowManager.destroyAllWindows();
     logger.info("Application shutting down");
   }
@@ -1378,6 +1450,7 @@ class ApplicationController {
       meetingService.shutdown();
       transcriptionService.shutdown();
       managerServer.stop();
+      voiceService.shutdown();
       windowManager.destroyAllWindows();
       globalShortcut.unregisterAll();
       app.quit();

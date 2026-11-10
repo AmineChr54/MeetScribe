@@ -6,6 +6,7 @@ const { app } = require('electron');
 const TranscriptionStream = require('./transcription-stream');
 const whisperPool = require('./whisper-pool.service');
 const audioArchive = require('./audio-archive.service');
+const voiceService = require('./voice.service');
 const settingsStore = require('../core/settings.store');
 const logger = require('../core/logger').createServiceLogger('TRANSCRIPTION');
 
@@ -84,6 +85,8 @@ class TranscriptionService extends EventEmitter {
         label,
         vad,
         language: settings.whisperLanguage,
+        // Only the mic gets speaker labels ("You" / "Other n"), and only when set up.
+        labeler: id === 'mic' ? (wavPath, ms) => voiceService.identify(wavPath, ms) : null,
         transcriber: {
           transcribe: (wavPath, meta) => whisperPool.transcribe(wavPath, meta)
         }
@@ -124,6 +127,7 @@ class TranscriptionService extends EventEmitter {
   start() {
     if (this.isRecording) return this.getStatus();
     this.configure();
+    voiceService.resetMeeting();
 
     // With live off nothing here needs Whisper: the audio is only archived.
     if (!this.isLiveEnabled()) {
@@ -316,6 +320,7 @@ class TranscriptionService extends EventEmitter {
       script: this._resolveScriptPath('whisper_offline.py'),
       transcodeScript: this._resolveScriptPath('transcode_flac.py'),
       convertScript: this._resolveScriptPath('convert_ct2.py'),
+      voiceScript: this._resolveScriptPath('voice_worker.py'),
       modelDir: this._resolveModelDir(),
       env: whisperPool.buildEnv(python)
     };

@@ -20,6 +20,8 @@ const FIELDS = {
   systemSource: 'text',
   systemDeviceLabel: 'text',
   micDeviceLabel: 'text',
+  voiceLabels: 'check',
+  voiceMatchThreshold: 'number',
   labelSystem: 'text',
   labelMic: 'text',
   echoSuppress: 'check',
@@ -89,10 +91,12 @@ class SettingsWindow {
     this.bindTabs();
     this.bindFields();
     this.bindActions();
+    this.bindVoice();
     this.bindEvents();
     this.load();
     this.loadModels();
     this.loadProfiles();
+    this.refreshVoice();
   }
 
   bindTabs() {
@@ -232,6 +236,66 @@ class SettingsWindow {
     });
 
     window.electronAPI.onInstallProgress((line) => this.appendLog(line));
+  }
+
+  async refreshVoice() {
+    const status = document.getElementById('voiceStatus');
+    try {
+      const voice = await window.electronAPI.getVoiceStatus();
+      this.voice = voice;
+      const ready = voice.packageReady && voice.modelReady;
+      document.getElementById('voiceSetup').hidden = ready;
+      document.getElementById('voiceEnroll').hidden = !ready;
+      document.getElementById('voiceEnroll').textContent = voice.enrolled ? 'Record again' : 'Record my voice (25 s)';
+      document.getElementById('voiceDelete').hidden = !voice.enrolled;
+      if (!ready) status.textContent = 'Not set up yet.';
+      else if (!voice.enrolled) status.textContent = 'Ready. Record your voice to start labelling.';
+      else status.textContent = 'Your voice is saved' + (voice.enrolledAt ? ' (' + voice.enrolledAt.slice(0, 10) + ')' : '') + '.';
+    } catch (_) {
+      status.textContent = 'Status unknown.';
+    }
+  }
+
+  bindVoice() {
+    const status = document.getElementById('voiceStatus');
+    const busy = (button, on) => { button.disabled = on; };
+    window.electronAPI.onVoiceProgress((line) => { status.textContent = String(line); });
+
+    document.getElementById('voiceSetup').addEventListener('click', async (event) => {
+      busy(event.target, true);
+      status.textContent = 'Setting up…';
+      const result = await window.electronAPI.setupVoice();
+      busy(event.target, false);
+      if (!result.ok) status.textContent = 'Setup failed: ' + result.error;
+      else await this.refreshVoice();
+    });
+
+    document.getElementById('voiceEnroll').addEventListener('click', async (event) => {
+      busy(event.target, true);
+      const result = await window.electronAPI.enrollVoice(25);
+      busy(event.target, false);
+      if (result.ok) {
+        await this.refreshVoice();
+        status.textContent = 'Voice saved (' + result.clips + ' clips, consistency ' + result.consistency + ').';
+      } else {
+        status.textContent = result.error;
+      }
+    });
+
+    document.getElementById('voiceDelete').addEventListener('click', async (event) => {
+      const button = event.target;
+      // Two clicks, like deleting a model.
+      if (button.dataset.armed !== '1') {
+        button.dataset.armed = '1';
+        button.textContent = 'Confirm?';
+        setTimeout(() => { button.dataset.armed = ''; button.textContent = 'Delete my voice'; }, 4000);
+        return;
+      }
+      button.dataset.armed = '';
+      button.textContent = 'Delete my voice';
+      await window.electronAPI.deleteVoice();
+      this.refreshVoice();
+    });
   }
 
   async loadProfiles() {
