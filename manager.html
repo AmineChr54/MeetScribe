@@ -13,13 +13,13 @@
       <div class="brand">
         <img src="/logo.svg" alt="" class="logo" width="34" height="34" />
         <div class="brand-text">
-          <div class="wordmark">MeetScribe</div>
+          <div class="wordmark">MeetScribe <span>Library</span></div>
           <div class="status" id="status" title="Is the library's local server answering?">
             <span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span>
           </div>
         </div>
+        <button class="icon-btn small app-toggle" id="appToggle" hidden type="button"><i data-icon="power"></i></button>
       </div>
-      <button class="btn small accent-soft" id="openAppBtn" hidden title="Bring the MeetScribe overlay back"><i data-icon="monitor"></i>Open MeetScribe</button>
 
       <label class="search">
         <i data-icon="search"></i>
@@ -58,6 +58,7 @@
           <i data-icon="inbox" id="listIcon"></i>
           <h2 id="listTitle">Inbox</h2>
         </div>
+        <button class="icon-btn small" id="selectAllBtn" type="button" title="Select every meeting in this list (Ctrl+A)" aria-label="Select every meeting in this list"><i data-icon="square"></i></button>
         <select id="sort" aria-label="Sort" title="Sort">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
