@@ -81,6 +81,8 @@ Every meeting gets its own folder under `Documents\MeetingTranscripts`:
   meta.json, glossary and corrections used for this meeting
 ```
 
+Click **Library** on the overlay to browse all of this in your browser: search every transcript, and click any line to hear it, with the two sides of the call kept in sync. The page is served by MeetScribe itself on `127.0.0.1`, only while it is open.
+
 The live transcript is synced to disk line by line, so a crash costs seconds, not the meeting. Final passes queue up, survive a restart, and run below normal priority so your PC stays usable.
 
 ## Features

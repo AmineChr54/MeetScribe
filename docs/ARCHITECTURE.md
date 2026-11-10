@@ -27,6 +27,13 @@ MeetScribe is an Electron app (main process + several renderer windows) that she
 - `model-store.service.js` is the model catalog (aliases → Hugging Face repos), the cache status of `userData/.whisper-models`, and download/delete through faster-whisper's own `download_model`. Repos published only as Transformers weights are instead fetched and converted to CTranslate2 by `scripts/convert_ct2.py` into `.whisper-models/converted/`, with the source weights kept in a scratch folder that is deleted afterwards. `speed-stats.service.js` learns final-pass speed (decode seconds per speech-second, per model and mode) and speech per meeting-hour from every pass, into `userData/model-speed.json` (numbers only), and turns them into the per-model time estimate.
 - `offline-pass.service.js` runs `scripts/whisper_offline.py` after the meeting: `large-v3-turbo` at beam 2, in one of two modes: `fast` (default) runs `BatchedInferencePipeline` over Silero-VAD speech chunks, `quality` is one continuous decode with `condition_on_previous_text`. Passes are queued one at a time at below-normal priority, persisted across restarts. The glossary is trimmed to a token budget so it can't overflow the 448-token context. Temperature ladder with a compression-ratio guard against repetition loops, low-confidence words marked `~like this~`, optional `diffModel` cross-check, paragraph blocks, `## HH:MM` chapters, and an index of up to 40 uncertain spans.
 
+## Browser manager
+
+- `manager-server.service.js` is a small `http` server inside the main process, started on demand by `manager:open` (overlay **Library**, Settings **Open Manager**) and closed once no tab has been connected for 5 minutes. It binds to `127.0.0.1` on a random port. Every request needs a per-start secret (handed over once in the URL, then an HttpOnly SameSite=Strict cookie) and a loopback `Host` header; changing requests also need our own `Origin` (`src/core/manager-http.js`, pure and unit-tested).
+- It serves `manager.html` + `src/ui/manager.{js,css}`, a JSON API, media with byte ranges (seeking in long FLACs), and Server-Sent Events that relay final-pass and model progress.
+- `library.service.js` reads the transcript folder: a meeting is any folder with `transcript.txt`, `transcript.final.md` or `audio/meta.json` (up to 3 levels deep); other folders are grouping folders. Timelines come from `transcript.final.json`, else from parsing `transcript.txt` (`src/core/library.js`). Every path from the page is confined to the transcript folder.
+- The player keeps one `<audio>` per stream aligned through each stream's `startedAt` in `audio/meta.json`.
+
 ## Configuration and data
 
 - `src/core/config.js`: shipped defaults (not user-facing).
