@@ -4,42 +4,68 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>MeetScribe Library</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="/manager.css" />
 </head>
 <body>
   <div class="app">
     <aside class="sidebar">
-      <div class="brand">MeetScribe <span>Library</span></div>
+      <div class="brand">
+        <img src="/logo.svg" alt="" class="logo" width="34" height="34" />
+        <div class="brand-text">
+          <div class="wordmark">MeetScribe</div>
+          <div class="status" id="status" title="Is the library's local server answering?">
+            <span class="dot" id="statusDot"></span><span id="statusText">Connecting…</span>
+          </div>
+        </div>
+      </div>
+      <button class="btn small accent-soft" id="openAppBtn" hidden title="Bring the MeetScribe overlay back"><i data-icon="monitor"></i>Open MeetScribe</button>
+
       <label class="search">
-        <input type="search" id="search" placeholder="Search all transcripts  ( / )" autocomplete="off" />
+        <i data-icon="search"></i>
+        <input type="search" id="search" placeholder="Search every transcript" autocomplete="off" />
+        <kbd>/</kbd>
       </label>
+
       <nav class="pages" aria-label="Sections">
-        <button class="page-link active" data-page="library">Library</button>
-        <button class="page-link" data-page="profiles">Profiles</button>
-        <button class="page-link" data-page="models">Models</button>
-        <button class="page-link" data-page="settings">Settings</button>
+        <button class="page-link active" data-page="library"><i data-icon="mic"></i><span>Meetings</span></button>
+        <button class="page-link" data-page="glossaries"><i data-icon="book"></i><span>Glossaries</span></button>
+        <button class="page-link" data-page="profiles"><i data-icon="layers"></i><span>Profiles</span></button>
+        <button class="page-link" data-page="models"><i data-icon="chip"></i><span>Models</span></button>
+        <button class="page-link" data-page="settings"><i data-icon="sliders"></i><span>Settings</span></button>
       </nav>
+
+      <div class="folder-head">
+        <span>Folders</span>
+        <button class="icon-btn" id="newFolderBtn" title="New folder" aria-label="New folder"><i data-icon="folder-plus"></i></button>
+      </div>
       <nav id="folders" class="folders" aria-label="Folders"></nav>
+
       <div class="sidebar-foot">
-        <button class="link" id="importBtn">Import a recording…</button>
+        <div class="foot-tools">
+          <button class="icon-btn labelled" id="importBtn" title="Import a recording (or drop an audio file anywhere)"><i data-icon="upload"></i><span>Import</span></button>
+          <button class="icon-btn labelled" id="storageBtn" title="Storage and cleanup"><i data-icon="drive"></i><span>Storage</span></button>
+          <button class="icon-btn labelled" id="globalCorrectionsBtn" title="Corrections for all new meetings"><i data-icon="spell"></i><span>Fixes</span></button>
+        </div>
         <input type="file" id="importFile" accept="audio/*,.mp3,.m4a,.wav,.flac,.ogg,.webm" hidden />
-        <button class="link" id="storageBtn">Storage and cleanup</button>
-        <button class="link" id="globalCorrectionsBtn">Corrections for all meetings</button>
-        <div id="totals" class="muted"></div>
-        <div id="connection" class="muted"></div>
+        <div id="totals" class="muted small"></div>
       </div>
     </aside>
 
     <section class="list-pane">
       <div class="list-head">
-        <h2 id="listTitle">All meetings</h2>
-        <select id="sort" aria-label="Sort">
+        <div class="list-title">
+          <i data-icon="inbox" id="listIcon"></i>
+          <h2 id="listTitle">Inbox</h2>
+        </div>
+        <select id="sort" aria-label="Sort" title="Sort">
           <option value="newest">Newest first</option>
           <option value="oldest">Oldest first</option>
           <option value="longest">Longest first</option>
           <option value="largest">Largest first</option>
         </select>
       </div>
+      <p id="listHint" class="list-hint"></p>
       <div id="storagePanel" class="storage" hidden>
         <div id="storageTotals"></div>
         <div class="row">
@@ -47,76 +73,126 @@
           <input type="number" id="cleanupDays" min="1" value="90" aria-label="Days" />
           days that already have a final transcript.
         </div>
-        <button class="btn" id="cleanupBtn">Review…</button>
+        <button class="btn" id="cleanupBtn"><i data-icon="trash"></i>Review…</button>
       </div>
       <div id="bulkBar" class="bulk" hidden>
         <span id="bulkCount"></span>
-        <button class="btn" data-bulk="move">Move…</button>
-        <button class="btn" data-bulk="tag">Tag…</button>
-        <button class="btn" data-bulk="rerun">Re-run…</button>
-        <button class="btn" data-bulk="audio">Delete audio</button>
-        <button class="btn danger" data-bulk="trash">Delete</button>
-        <button class="btn ghost" data-bulk="clear">Clear</button>
+        <button class="icon-btn" data-bulk="move" title="Move to a folder"><i data-icon="folder-move"></i></button>
+        <button class="icon-btn" data-bulk="tag" title="Add or remove a tag"><i data-icon="tag"></i></button>
+        <button class="icon-btn" data-bulk="rerun" title="Re-run the final pass"><i data-icon="refresh"></i></button>
+        <button class="icon-btn danger" data-bulk="audio" title="Delete the audio only"><i data-icon="volume-x"></i></button>
+        <button class="icon-btn danger" data-bulk="trash" title="Delete the meetings"><i data-icon="trash"></i></button>
+        <button class="icon-btn" data-bulk="clear" title="Clear the selection"><i data-icon="x"></i></button>
       </div>
       <div id="queue" class="queue" hidden></div>
       <ul id="meetings" class="meetings"></ul>
-      <p id="emptyList" class="empty" hidden>No meetings here yet.</p>
+      <div id="emptyList" class="empty" hidden></div>
     </section>
 
     <section class="page-pane" id="pagePane" hidden>
+      <div id="page-glossaries" class="app-page" hidden>
+        <header class="page-head">
+          <div>
+            <h1><i data-icon="book"></i>Glossaries</h1>
+            <p class="muted">One glossary per project. A meeting can use several, or none: pick them in the meeting's Glossary tab, when you re-run it, or in a profile for new recordings. Stored as text files in <code>.glossaries</code> inside your transcript folder.</p>
+          </div>
+          <button class="btn primary" id="newGlossaryBtn"><i data-icon="plus"></i>New glossary</button>
+        </header>
+        <div class="glossary-layout">
+          <div id="glossaryList" class="glossary-list"></div>
+          <div id="glossaryEditor" class="glossary-editor" hidden>
+            <label class="field-label">Name <input type="text" id="glossaryName" maxlength="60" /></label>
+            <label class="field-label">Terms
+              <textarea id="glossaryBody" rows="11" spellcheck="false" placeholder="Acme, AcmeTrakr, Zorblin&#10;# a note for yourself&#10;&gt; A sentence of context for the model."></textarea>
+            </label>
+            <p class="muted small">Commas or new lines. "#" starts a note, "&gt;" a line of context. Keep it short: only the first 20 or so terms help, a long list gets "heard" where nobody said it.</p>
+            <div class="row-buttons">
+              <button class="btn primary" id="glossarySaveBtn"><i data-icon="check"></i>Save</button>
+              <button class="btn danger-soft" id="glossaryDeleteBtn"><i data-icon="trash"></i>Delete</button>
+              <span id="glossaryStatus" class="muted small"></span>
+            </div>
+          </div>
+          <div id="glossaryEmpty" class="empty-card" hidden>
+            <i data-icon="book"></i>
+            <p>No glossaries yet. Make one per project with its names, products and jargon.</p>
+          </div>
+        </div>
+      </div>
+
       <div id="page-profiles" class="app-page" hidden>
-        <h1>Profiles</h1>
-        <p class="muted">A profile is a set of models, language and recording options you pick with one click. The active one is what the next recording uses; editing it changes your settings too.</p>
+        <header class="page-head">
+          <div>
+            <h1><i data-icon="layers"></i>Profiles</h1>
+            <p class="muted">A profile is a set of models, language, glossaries and recording options you pick with one click. Whatever you change while one is active is remembered by it.</p>
+          </div>
+          <button class="btn primary" id="newProfileBtn"><i data-icon="plus"></i>Save current settings as a profile</button>
+        </header>
         <div id="profileCards" class="cards"></div>
       </div>
+
       <div id="page-models" class="app-page" hidden>
-        <h1>Models</h1>
-        <p class="muted">Speech models on this computer. The time is how long the final pass takes for one hour of meeting, learned from your own meetings where possible.</p>
+        <header class="page-head">
+          <div>
+            <h1><i data-icon="chip"></i>Models</h1>
+            <p class="muted">Speech models for each job. The time is how long the final pass takes for one hour of meeting, learned from your own meetings where possible.</p>
+          </div>
+        </header>
         <div id="modelList"></div>
+        <section class="hub">
+          <h2><i data-icon="cloud"></i>Find more on Hugging Face</h2>
+          <p class="muted">Search for newer or language-specific Whisper models. Ready models (CTranslate2) download as they are; Transformers models are converted on download, which needs more time and disk. Only your search words are sent to Hugging Face.</p>
+          <form id="hubForm" class="hub-form">
+            <i data-icon="search"></i>
+            <input type="search" id="hubQuery" placeholder="e.g. german small, turbo, swiss german" />
+            <button class="btn primary" type="submit">Search</button>
+          </form>
+          <div id="hubResults" class="hub-results"></div>
+        </section>
       </div>
+
       <div id="page-settings" class="app-page" hidden>
-        <h1>Settings</h1>
-        <p class="muted">The same settings as in the app. Audio devices, the Python environment and the folder meetings are saved to can only be changed in the app.</p>
+        <header class="page-head">
+          <div>
+            <h1><i data-icon="sliders"></i>Settings</h1>
+            <p class="muted">The same settings as in the app. Audio devices, the Python environment and the transcript folder can only be changed in the app.</p>
+          </div>
+        </header>
         <form id="settingsForm" class="settings-form"></form>
-        <div class="settings-save"><button class="btn primary" id="settingsSave">Save changes</button> <span id="settingsSaved" class="muted"></span></div>
+        <div class="settings-save"><button class="btn primary" id="settingsSave"><i data-icon="check"></i>Save changes</button> <span id="settingsSaved" class="muted"></span></div>
       </div>
     </section>
 
     <main class="detail" id="detail">
       <div class="placeholder" id="placeholder">
-        <p>Pick a meeting to read and play it.</p>
-        <p class="muted">Space play/pause · ←/→ 5 s · J/K previous/next line · L loop line · [ ] speed · / search</p>
+        <img src="/logo.svg" alt="" class="placeholder-logo" />
+        <p class="placeholder-title">Pick a meeting to read and play it.</p>
+        <p class="muted">Drag meetings onto a folder in the sidebar to file them. Drop an audio file anywhere to import it.</p>
+        <div class="keys">
+          <span><kbd>Space</kbd> play / pause</span><span><kbd>←</kbd><kbd>→</kbd> 5 s</span><span><kbd>J</kbd><kbd>K</kbd> previous / next line</span>
+          <span><kbd>L</kbd> loop line</span><span><kbd>[</kbd><kbd>]</kbd> speed</span><span><kbd>M</kbd> marker</span><span><kbd>/</kbd> search</span>
+        </div>
       </div>
 
       <div id="meetingView" hidden>
         <header class="meeting-head">
-          <div>
+          <div class="meeting-title">
             <h1 id="meetingTitle"></h1>
             <div class="meta" id="meetingMeta"></div>
             <div class="badges" id="meetingBadges"></div>
           </div>
           <div class="actions">
-            <button class="btn" id="renameBtn">Rename</button>
-            <button class="btn" id="moveBtn">Move</button>
-            <button class="btn" id="rerunBtn" title="Transcribe the archived audio again, optionally with another model or language">Re-run…</button>
-            <button class="btn" id="copyLlmBtn" title="Copy the transcript with a short header, ready to paste into an assistant">Copy for LLM</button>
-            <select id="exportSelect" aria-label="Export">
-              <option value="">Export…</option>
-              <option value="md">Markdown (.md)</option>
-              <option value="txt">Plain text (.txt)</option>
-              <option value="srt">Subtitles (.srt)</option>
-              <option value="llm">Text for an LLM (.txt)</option>
-            </select>
-            <select id="deleteSelect" aria-label="Delete">
-              <option value="">Delete…</option>
-              <option value="audio">Delete the audio only</option>
-              <option value="all">Delete the whole meeting</option>
-            </select>
+            <button class="icon-btn" id="renameBtn" title="Rename" aria-label="Rename"><i data-icon="pencil"></i></button>
+            <button class="icon-btn" id="moveBtn" title="Move to a folder" aria-label="Move to a folder"><i data-icon="folder-move"></i></button>
+            <button class="icon-btn" id="rerunBtn" title="Re-run the final pass" aria-label="Re-run the final pass"><i data-icon="refresh"></i></button>
+            <button class="icon-btn" id="copyLlmBtn" title="Copy for an LLM: the transcript with a short header" aria-label="Copy for an LLM"><i data-icon="sparkles"></i></button>
+            <button class="icon-btn" id="exportBtn" title="Export" aria-label="Export" aria-haspopup="menu"><i data-icon="download"></i></button>
+            <span class="sep"></span>
+            <button class="icon-btn danger" id="deleteBtn" title="Delete…" aria-label="Delete" aria-haspopup="menu"><i data-icon="trash"></i></button>
           </div>
         </header>
 
         <div class="player" id="player">
-          <button id="playBtn" class="play" title="Play / pause (Space)" aria-label="Play">▶</button>
+          <button id="playBtn" class="play" title="Play / pause (Space)" aria-label="Play"><i data-icon="play"></i></button>
           <span id="clock" class="clock">00:00</span>
           <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position" />
           <span id="duration" class="clock">00:00</span>
@@ -130,27 +206,27 @@
               <option value="2">2×</option>
             </select>
             <div id="solo" class="segmented" role="group" aria-label="Streams"></div>
-            <label class="toggle" title="Jump over silences longer than 2 s"><input type="checkbox" id="skipSilence" /> Skip silence</label>
-            <label class="toggle" title="Repeat the current line (L)"><input type="checkbox" id="loopLine" /> Loop line</label>
-            <label class="toggle" title="Keep the current line in view"><input type="checkbox" id="follow" checked /> Follow</label>
-            <button class="btn small" id="addMarkerBtn" title="Add a marker at the current position (M)">+ Marker</button>
+            <label class="chip" title="Jump over silences longer than 2 s"><input type="checkbox" id="skipSilence" /><i data-icon="fast-forward"></i><span>Skip silence</span></label>
+            <label class="chip" title="Repeat the current line (L)"><input type="checkbox" id="loopLine" /><i data-icon="repeat"></i><span>Loop line</span></label>
+            <label class="chip" title="Keep the current line in view"><input type="checkbox" id="follow" checked /><i data-icon="target"></i><span>Follow</span></label>
+            <button class="chip" id="addMarkerBtn" title="Add a marker at the current position (M)"><i data-icon="flag"></i><span>Marker</span></button>
           </div>
-          <p id="noAudio" class="muted" hidden>No archived audio for this meeting.</p>
+          <p id="noAudio" class="muted small" hidden>No archived audio for this meeting.</p>
         </div>
 
         <div class="tabs" role="tablist">
-          <button class="tab active" data-tab="transcript" role="tab">Transcript</button>
-          <button class="tab" data-tab="notes" role="tab">Notes and tags</button>
-          <button class="tab" data-tab="glossary" role="tab">Glossary and corrections</button>
-          <button class="tab" data-tab="details" role="tab">Details</button>
+          <button class="tab active" data-tab="transcript" role="tab"><i data-icon="text"></i>Transcript</button>
+          <button class="tab" data-tab="notes" role="tab"><i data-icon="notes"></i>Notes and tags</button>
+          <button class="tab" data-tab="glossary" role="tab"><i data-icon="book"></i>Glossary and fixes</button>
+          <button class="tab" data-tab="details" role="tab"><i data-icon="info"></i>Details</button>
         </div>
 
         <div class="tab-page" id="tab-transcript">
           <div class="transcript-tools">
             <span id="sourceNote" class="muted"></span>
-            <span>
-              <label class="toggle"><input type="checkbox" id="showMarkup" checked /> Show uncertain words</label>
-              <label class="toggle" title="Fix text, speakers, merge or delete lines"><input type="checkbox" id="editMode" /> Edit</label>
+            <span class="tool-chips">
+              <label class="chip" title="Mark words the model was unsure of"><input type="checkbox" id="showMarkup" checked /><i data-icon="eye"></i><span>Uncertain words</span></label>
+              <label class="chip" title="Fix text, speakers, merge or delete lines"><input type="checkbox" id="editMode" /><i data-icon="pencil"></i><span>Edit</span></label>
             </span>
           </div>
           <div id="transcript" class="transcript"></div>
@@ -162,23 +238,36 @@
             <label>Participants <input type="text" name="participants" maxlength="2000" /></label>
             <label>Tags <input type="text" name="tags" placeholder="comma separated" /></label>
             <label>Notes <textarea name="notes" rows="12"></textarea></label>
-            <div><button class="btn primary" type="submit">Save</button> <span id="infoSaved" class="muted"></span></div>
+            <div><button class="btn primary" type="submit"><i data-icon="check"></i>Save</button> <span id="infoSaved" class="muted"></span></div>
           </form>
         </div>
 
         <div class="tab-page" id="tab-glossary" hidden>
-          <p class="muted">The glossary and corrections this meeting was recorded with. They apply the next time its final pass runs.</p>
-          <h3>Glossary</h3>
-          <textarea id="glossaryText" rows="10" spellcheck="false"></textarea>
-          <div><button class="btn primary" id="glossarySave">Save glossary</button> <span id="glossarySaved" class="muted"></span></div>
-          <h3>Corrections</h3>
-          <p class="muted">Words the model keeps mishearing. Tip: select a word in the transcript to add it here.</p>
-          <div id="correctionsTable" class="corrections"></div>
-          <div>
-            <button class="btn" id="correctionAdd">Add row</button>
-            <button class="btn primary" id="correctionsSave">Save corrections</button>
-            <span id="correctionsSaved" class="muted"></span>
-          </div>
+          <section class="panel">
+            <h3><i data-icon="book"></i>Project glossaries for this meeting</h3>
+            <p class="muted small">Pick the projects this meeting was about. They replace the glossary below and apply the next time its final pass runs.</p>
+            <div id="meetingGlossaryPicks" class="pick-chips"></div>
+            <div class="row-buttons">
+              <button class="btn primary" id="glossaryApply"><i data-icon="check"></i>Use the ticked glossaries</button>
+              <button class="btn" id="glossaryNone"><i data-icon="x"></i>No glossary</button>
+              <span id="glossaryApplied" class="muted small"></span>
+            </div>
+          </section>
+          <section class="panel">
+            <h3><i data-icon="text"></i>This meeting's glossary</h3>
+            <textarea id="glossaryText" rows="10" spellcheck="false"></textarea>
+            <div class="row-buttons"><button class="btn primary" id="glossarySave"><i data-icon="check"></i>Save glossary</button> <span id="glossarySaved" class="muted small"></span></div>
+          </section>
+          <section class="panel">
+            <h3><i data-icon="spell"></i>Corrections</h3>
+            <p class="muted small">Words the model keeps mishearing. Tip: select a word in the transcript to add it here.</p>
+            <div id="correctionsTable" class="corrections"></div>
+            <div class="row-buttons">
+              <button class="btn" id="correctionAdd"><i data-icon="plus"></i>Add row</button>
+              <button class="btn primary" id="correctionsSave"><i data-icon="check"></i>Save corrections</button>
+              <span id="correctionsSaved" class="muted small"></span>
+            </div>
+          </section>
         </div>
 
         <div class="tab-page" id="tab-details" hidden>
@@ -194,14 +283,19 @@
       <p id="dialogText" class="muted"></p>
       <div id="dialogFields"></div>
       <div class="dialog-buttons">
-        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <!-- OK first in the markup: Enter in a field submits with the first
+             submit button, and that must not be Cancel. -->
         <button class="btn primary" value="ok" id="dialogOk">OK</button>
+        <button class="btn ghost" type="button" id="dialogCancel">Cancel</button>
       </div>
     </form>
   </dialog>
-  <button id="correctionPop" class="btn small pop" hidden>Add correction…</button>
+  <div id="menu" class="menu" role="menu" hidden></div>
+  <div id="dropZone" class="drop-zone" hidden><div><i data-icon="upload"></i><p>Drop to import this recording</p></div></div>
+  <button id="correctionPop" class="btn small pop" hidden><i data-icon="spell"></i>Add correction…</button>
   <div id="streams" hidden></div>
   <div id="toast" class="toast" hidden></div>
+  <script src="/flags.js"></script>
   <script src="/manager.js"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const settingsStore = require('../core/settings.store');
 const library = require('../core/library');
+const glossaries = require('../core/glossaries');
 const transcriptEdit = require('../core/transcript-edit');
 const transcriptRender = require('../core/transcript-render');
 const corrections = require('./corrections');
@@ -182,6 +183,29 @@ class LibraryEditService {
     return { id: library.idOf(root, to) };
   }
 
+  /** Move a grouping folder, with everything in it, into another one ('' = the top level). */
+  moveFolder(id, parentId) {
+    const root = libraryService.root();
+    if (!id) throw new Error('Pick a folder');
+    const dir = library.resolveInside(root, id);
+    if (!fs.existsSync(dir) || libraryService._isMeeting(dir)) throw new Error('Folder not found');
+    const parent = library.resolveInside(root, parentId || '');
+    if (!fs.existsSync(parent) || !fs.statSync(parent).isDirectory() || (parentId && libraryService._isMeeting(parent))) {
+      throw new Error('That folder does not exist');
+    }
+    const same = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+    if (same(parent, dir) || same(parent + path.sep, dir + path.sep) ||
+      (parent + path.sep).toLowerCase().startsWith((dir + path.sep).toLowerCase())) {
+      throw new Error('A folder cannot go inside itself');
+    }
+    if (same(path.dirname(dir), parent)) return { id };
+    this._assertFolderIdle(dir);
+    const to = path.join(parent, path.basename(dir));
+    if (fs.existsSync(to)) throw new Error('There is already a folder with that name there');
+    this._rename(dir, to);
+    return { id: library.idOf(root, to) };
+  }
+
   /** Only empty folders: meetings are moved or deleted on purpose, never as a side effect. */
   deleteFolder(id) {
     const root = libraryService.root();
@@ -265,6 +289,55 @@ class LibraryEditService {
     const value = String(text || '');
     if (Buffer.byteLength(value) > MAX_GLOSSARY_BYTES) throw new Error('The glossary is too long');
     this._writeAtomic(this._glossaryFile(id), value.replace(/\r?\n/g, '\r\n'));
+    return { ok: true };
+  }
+
+  /**
+   * Rebuild a meeting's glossary from project glossaries. An empty list means
+   * "no glossary": the file then holds only notes, so the final pass does not
+   * fall back to the glossary in Settings.
+   */
+  applyGlossaries(id, names) {
+    const dir = libraryService.meetingDir(id);
+    this._assertIdle(dir);
+    const chosen = libraryService.readProjectGlossaries(names);
+    // Ticked glossaries that have all been deleted meanwhile must not quietly mean "none".
+    if (glossaries.cleanSet(names).length && !chosen.length) throw new Error('Those glossaries no longer exist');
+    const text = chosen.length ? glossaries.meetingFile(glossaries.compose(chosen)) : glossaries.emptyGlossary();
+    this._writeAtomic(this._glossaryFile(id), text.replace(/\r?\n/g, '\r\n'));
+    return { text, glossaries: chosen.map((glossary) => glossary.name) };
+  }
+
+  // ── Project glossaries (<transcriptRoot>/.glossaries/<name>.txt) ──
+
+  _projectGlossaryFile(name) {
+    const clean = glossaries.cleanName(name);
+    if (!clean) throw new Error('Give the glossary a name');
+    return { name: clean, file: path.join(libraryService.glossaryDir(), clean + '.txt') };
+  }
+
+  /** Create, change or rename one. `previous` is its old name when renaming. */
+  saveProjectGlossary({ name, previous, text }) {
+    const value = String(text || '').replace(/\r\n/g, '\n');
+    if (Buffer.byteLength(value) > MAX_GLOSSARY_BYTES) throw new Error('The glossary is too long');
+    const target = this._projectGlossaryFile(name);
+    fs.mkdirSync(libraryService.glossaryDir(), { recursive: true });
+    const old = previous ? this._projectGlossaryFile(previous) : null;
+    const renamed = old && old.name.toLowerCase() !== target.name.toLowerCase();
+    if ((!old || renamed) && fs.existsSync(target.file)) throw new Error('A glossary with that name already exists');
+    // Only the case changed: rename first, or Windows keeps the old spelling.
+    if (old && !renamed && old.name !== target.name && fs.existsSync(old.file)) fs.renameSync(old.file, target.file);
+    this._writeAtomic(target.file, value.replace(/\n/g, '\r\n'));
+    if (renamed && fs.existsSync(old.file)) fs.rmSync(old.file, { force: true });
+    logger.info('Project glossary saved');
+    return { name: target.name };
+  }
+
+  async deleteProjectGlossary(name) {
+    const { file } = this._projectGlossaryFile(name);
+    if (!fs.existsSync(file)) throw new Error('Glossary not found');
+    if (this.trashItem) await this.trashItem(file);
+    else fs.rmSync(file, { force: true });
     return { ok: true };
   }
 

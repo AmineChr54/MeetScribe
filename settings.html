@@ -109,11 +109,15 @@
     details.section > summary { -webkit-app-region: no-drag; cursor: pointer; list-style: none; padding: 8px 0 2px;
       font-size: 11px; color: var(--muted); }
     details.section > summary::-webkit-details-marker { display: none; }
-    details.section > summary::before { content: 'B8  '; }
-    details.section[open] > summary::before { content: 'BE  '; }
+    details.section > summary::before { content: '\25B8\00a0\00a0'; }
+    details.section[open] > summary::before { content: '\25BE\00a0\00a0'; }
     details.section[open] > summary { color: var(--text); }
     .model-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; }
     .model-group:first-child { margin-top: 0; }
+    .glossary-set { display: flex; flex-wrap: wrap; gap: 6px; }
+    .glossary-set label { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border: 1px solid var(--border);
+      border-radius: 99px; font-size: 12px; cursor: pointer; }
+    .glossary-set label.on { border-color: var(--accent, #ff8a4c); color: var(--text); }
     .model-more > summary { cursor: pointer; font-size: 11px; color: var(--muted); margin: 10px 0 4px; }
     .model-tag { font-size: 9px; color: var(--accent); border: 1px solid var(--border);
       border-radius: 4px; padding: 0 4px; margin-left: 4px; }
@@ -384,7 +388,11 @@
       <!-- Final pass -->
       <section class="page" id="page-final">
         <div class="field">
-          <label for="glossary">Glossary — names, products, file names, jargon</label>
+          <label>Project glossaries for new meetings</label>
+          <div class="glossary-set" id="glossarySet"><span class="hint">No project glossaries yet. Make them on the Glossaries page of the Library.</span></div>
+        </div>
+        <div class="field">
+          <label for="glossary">Other glossary terms — names, products, file names, jargon</label>
           <textarea id="glossary" rows="6" placeholder="Acme, AcmeTrakr, SharePoint, config.ini&#10;Stammdaten, Kassenzeichen&#10;&gt; Ein Meeting über die Acme-Migration."></textarea>
           <div class="hint">The one thing that reliably fixes proper nouns: these terms are fed to the
             final pass's decoder as hotwords. A bigger model helps with everything else but cannot guess
@@ -548,6 +556,7 @@
     </footer>
   </div>
 
+  <script src="./src/ui/flags.js"></script>
   <script src="./src/ui/settings-window.js"></script>
 </body>
 </html>

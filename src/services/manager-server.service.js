@@ -8,6 +8,7 @@ const security = require('../core/manager-http');
 const library = require('../core/library');
 const settingsSchema = require('../core/settings-schema');
 const profiles = require('../core/profiles');
+const glossaries = require('../core/glossaries');
 const logger = require('../core/logger').createServiceLogger('MANAGER');
 
 // The listener closes itself once no manager tab has been open for this long.
@@ -29,14 +30,20 @@ const ACTIONS = {
   'corrections': (body) => libraryEdit.saveCorrections(body.id || '', body.rules),
   'folder/create': (body) => libraryEdit.createFolder(body.parent, body.name),
   'folder/rename': (body) => libraryEdit.renameFolder(body.id, body.name),
-  'folder/delete': (body) => libraryEdit.deleteFolder(body.id)
+  'folder/delete': (body) => libraryEdit.deleteFolder(body.id),
+  'folder/move': (body) => libraryEdit.moveFolder(body.id, body.parent),
+  'meeting/glossaries': (body) => libraryEdit.applyGlossaries(body.id, Array.isArray(body.names) ? body.names : []),
+  'glossaries/save': (body) => libraryEdit.saveProjectGlossary({ name: body.name, previous: body.previous, text: body.text }),
+  'glossaries/delete': (body) => libraryEdit.deleteProjectGlossary(body.name)
 };
 
 const ROOT = path.join(__dirname, '..', '..');
 const STATIC = {
   '/': { file: path.join(ROOT, 'manager.html'), type: 'text/html; charset=utf-8' },
   '/manager.js': { file: path.join(ROOT, 'src', 'ui', 'manager.js'), type: 'text/javascript; charset=utf-8' },
-  '/manager.css': { file: path.join(ROOT, 'src', 'ui', 'manager.css'), type: 'text/css; charset=utf-8' }
+  '/manager.css': { file: path.join(ROOT, 'src', 'ui', 'manager.css'), type: 'text/css; charset=utf-8' },
+  '/flags.js': { file: path.join(ROOT, 'src', 'ui', 'flags.js'), type: 'text/javascript; charset=utf-8' },
+  '/logo.svg': { file: path.join(ROOT, 'assets', 'brand', 'icon.svg'), type: 'image/svg+xml' }
 };
 
 const PAGE_CSP = [
@@ -134,6 +141,7 @@ class ManagerServer extends EventEmitter {
     this.port = null;
     this.token = null;
     logger.info('Manager server stopped');
+    this.emit('stopped');
   }
 
   /** Close the listener after a quiet period with no open tab. */
@@ -189,6 +197,7 @@ class ManagerServer extends EventEmitter {
     if (req.method === 'GET' && url.pathname === '/api/events') return this._eventStream(req, res);
     if (req.method === 'GET' && url.pathname === '/media') return this._media(req, res, url);
     if (req.method === 'GET' && url.pathname === '/api/export') return this._export(res, url);
+    if (req.method === 'GET' && url.pathname === '/api/hub') return this._hub(res, url);
     if (req.method === 'GET' && url.pathname.startsWith('/api/')) return this._get(res, url);
     if (req.method === 'POST' && url.pathname === '/api/import') return this._import(req, res, url);
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) return this._post(req, res, url);
@@ -213,8 +222,12 @@ class ManagerServer extends EventEmitter {
           return this._json(res, 200, { ok: true, meeting: libraryService.meeting(query.get('id')) });
         case '/api/search':
           return this._json(res, 200, { ok: true, ...libraryService.search(query.get('q')) });
-        case '/api/glossary':
-          return this._json(res, 200, { ok: true, ...libraryEdit.getGlossary(query.get('id')) });
+        case '/api/glossary': {
+          const meeting = libraryEdit.getGlossary(query.get('id'));
+          return this._json(res, 200, { ok: true, ...meeting, glossaries: glossaries.setOf(meeting.text) });
+        }
+        case '/api/glossaries':
+          return this._json(res, 200, { ok: true, glossaries: libraryService.projectGlossaries() });
         case '/api/corrections':
           return this._json(res, 200, { ok: true, ...libraryEdit.getCorrections(query.get('id') || '') });
         case '/api/models':
@@ -305,12 +318,16 @@ class ManagerServer extends EventEmitter {
         }
         const ids = Array.isArray(body.ids) ? body.ids : [];
         if (!ids.length) throw new Error('Pick a meeting');
+        // null/undefined keeps each meeting's own glossary; a list (maybe
+        // empty, "no glossary") rebuilds it from the project glossaries.
+        const glossaryNames = Array.isArray(body.glossaries) ? body.glossaries : null;
         const dirs = ids.map((id) => {
           const dir = libraryService.meetingDir(id);
           if (!fs.existsSync(path.join(dir, 'audio', 'meta.json'))) throw new Error(`"${path.basename(dir)}" has no archived audio`);
           if (libraryService._stateOf(dir, libraryService._busy()) === 'recording') throw new Error('That meeting is still recording');
           return dir;
         });
+        if (glossaryNames) for (const id of ids) libraryEdit.applyGlossaries(id, glossaryNames);
         for (const dir of dirs) need('rerun')(dir, overrides);
         return { queued: dirs.length };
       },
@@ -339,9 +356,25 @@ class ManagerServer extends EventEmitter {
         for (const key of profiles.PROFILE_KEYS) if (body.values && body.values[key] !== undefined) values[key] = body.values[key];
         const { patch, errors } = settingsSchema.validatePatch(values);
         if (errors.length) throw new Error(errors.join('; '));
-        return this._unwrap(need('updateProfile')(String(body.id || ''), patch), () => ({}));
+        const meta = {};
+        if (body.label !== undefined) meta.label = String(body.label);
+        if (body.flag !== undefined) meta.flag = String(body.flag);
+        return this._unwrap(need('updateProfile')(String(body.id || ''), patch, meta), () => ({}));
       },
-      'models/download': (body) => this._unwrap(need('downloadModel')(String(body.id || '')), () => ({})),
+      'profiles/create': (body) => this._unwrap(need('createProfile')({
+        label: String(body.label || ''),
+        flag: String(body.flag || 'custom'),
+        fromId: body.from ? String(body.from) : null,
+        activate: body.activate === true
+      }), (result) => ({ id: result.id })),
+      'profiles/delete': (body) => this._unwrap(need('deleteProfile')(String(body.id || '')), () => ({})),
+      'app/open': () => need('openApp')(),
+      'models/download': (body) => {
+        const options = {};
+        if (body.convert !== undefined) options.convert = body.convert === true;
+        if (body.category === 'live' || body.category === 'final') options.category = body.category;
+        return this._unwrap(need('downloadModel')(String(body.id || ''), options), () => ({}));
+      },
       'models/delete': (body) => this._unwrap(need('deleteModel')(String(body.id || '')), (result) => ({ freed: result.freed || 0 })),
       'models/use': (body) => {
         const key = { live: 'whisperModel', final: 'offlineModel', diff: 'offlineDiffModel' }[body.role];
@@ -356,6 +389,17 @@ class ManagerServer extends EventEmitter {
         return {};
       }
     };
+  }
+
+  /** Search Hugging Face through the app (the page itself may only talk to this server). */
+  async _hub(res, url) {
+    if (!this.api.searchModels) return this._json(res, 404, { ok: false, error: 'Not available' });
+    try {
+      const results = await this.api.searchModels(url.searchParams.get('q') || '');
+      return this._json(res, 200, { ok: true, results });
+    } catch (error) {
+      return this._json(res, 502, { ok: false, error: error.message });
+    }
   }
 
   /** main.js answers { ok: false, error } instead of throwing; turn that into a refusal. */

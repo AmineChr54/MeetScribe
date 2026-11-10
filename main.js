@@ -70,6 +70,9 @@ class ApplicationController {
     this.starting = false;
     this.appIcon = "terminal";
     this.audioDevices = { inputs: [] };
+    // Started from the library shortcut: the manager only, no overlay.
+    this.libraryOnly = process.argv.includes("--library");
+    this.overlayCreated = false;
 
     this.setupStealth();
     this.setupEventHandlers();
@@ -102,8 +105,18 @@ class ApplicationController {
     this.setupServiceEventHandlers();
   }
 
-  handleSecondInstance() {
+  handleSecondInstance(argv = []) {
     logger.info("Second instance launch detected; focusing existing windows");
+    // The library shortcut while MeetScribe runs: open the manager, nothing else.
+    if (argv.includes("--library")) {
+      app.whenReady().then(() => this.openManager());
+      return;
+    }
+    // MeetScribe started normally while only the library runs: bring the overlay up.
+    if (this.libraryOnly) {
+      app.whenReady().then(() => this.leaveLibraryOnly());
+      return;
+    }
 
     const focusExistingWindows = () => {
       try {
@@ -149,21 +162,19 @@ class ApplicationController {
     try {
       this.setupPermissions();
       this.setupDisplayMediaHandler();
-
-      // Small delay so desktop/display detection is accurate.
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      await windowManager.initializeWindows({ showMainWindow: true });
-      windowManager.setWindowGap(Number(settingsStore.get("windowGap")) || 10);
-      this.setupGlobalShortcuts();
-      this.updateAppIcon(this.appIcon);
-
       transcriptionService.configure();
+      this.ensureLibraryShortcut();
 
-      if (settingsStore.get("startClickThrough")) {
-        windowManager.setInteractive(false);
+      if (this.libraryOnly) {
+        // Started from the library shortcut: no overlay, just the manager.
+        this.starting = false;
+        this.isReady = true;
+        logger.info("Started in library-only mode");
+        await this.openManager();
+        return;
       }
 
+      await this.startOverlay();
       this.starting = false;
       this.isReady = true;
 
@@ -179,6 +190,107 @@ class ApplicationController {
       this.starting = false;
       logger.error("Application initialization failed", { error: error.message });
       app.quit();
+    }
+  }
+
+  /** The overlay windows and shortcuts; created once, then only shown and hidden. */
+  async startOverlay() {
+    if (this.overlayCreated) {
+      windowManager.showAllWindows();
+      this.setupGlobalShortcuts();
+      return;
+    }
+    // Small delay so desktop/display detection is accurate.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await windowManager.initializeWindows({ showMainWindow: true });
+    this.overlayCreated = true;
+    windowManager.setWindowGap(Number(settingsStore.get("windowGap")) || 10);
+    this.setupGlobalShortcuts();
+    this.updateAppIcon(this.appIcon);
+    if (settingsStore.get("startClickThrough")) {
+      windowManager.setInteractive(false);
+    }
+  }
+
+  // ── Library-only mode ──
+  //
+  // MeetScribe without its overlay: only the browser manager's local server.
+  // Entered by starting with --library (the shortcut in the transcript folder)
+  // or with the overlay's "library only" button; left by starting MeetScribe
+  // normally or with "Open MeetScribe" in the manager. It quits by itself once
+  // the manager has been closed for a while and no final pass is running.
+
+  async enterLibraryOnly() {
+    if (transcriptionService.isRecording) return { ok: false, error: "Stop the recording first" };
+    this.libraryOnly = true;
+    globalShortcut.unregisterAll();
+    windowManager.hideAllWindows();
+    logger.info("Switched to library-only mode");
+    const opened = await this.openManager();
+    managerServer.broadcast("status", { mode: "library" });
+    return opened;
+  }
+
+  async leaveLibraryOnly() {
+    if (!this.libraryOnly) {
+      windowManager.showAllWindows();
+      return {};
+    }
+    this.libraryOnly = false;
+    logger.info("Leaving library-only mode");
+    await this.startOverlay();
+    managerServer.broadcast("status", { mode: "app" });
+    return {};
+  }
+
+  onManagerStopped() {
+    if (!this.libraryOnly) return;
+    const pass = offlinePass.getStatus();
+    if (pass.folder || (pass.queued || []).length) {
+      // Finish the passes first; check again when the queue moves.
+      if (!this.quitAfterPass) {
+        this.quitAfterPass = () => {
+          if (managerServer.isRunning()) return;
+          const next = offlinePass.getStatus();
+          if (!next.folder && !(next.queued || []).length) this.onManagerStopped();
+        };
+        for (const event of ["done", "failed", "cancelled"]) offlinePass.on(event, () => setTimeout(() => this.quitAfterPass(), 500));
+      }
+      return;
+    }
+    logger.info("Library closed; quitting library-only mode");
+    this.quit();
+  }
+
+  /**
+   * "Open MeetScribe Library" in the transcript folder: starts this app with
+   * --library. Windows only (a .lnk); put back if it was deleted.
+   */
+  ensureLibraryShortcut() {
+    if (process.platform !== "win32") return;
+    try {
+      const root = settingsStore.get("transcriptRoot");
+      if (!root) return;
+      fs.mkdirSync(root, { recursive: true });
+      const link = path.join(root, "Open MeetScribe Library.lnk");
+      // Packaged: the app's own exe. From source: electron.exe plus the app folder.
+      const args = app.isPackaged ? "--library" : `"${app.getAppPath()}" --library`;
+      const icon = path.join(__dirname, "assets", "brand", "icon.ico").replace("app.asar", "app.asar.unpacked");
+      const options = {
+        target: process.execPath,
+        args,
+        cwd: path.dirname(process.execPath),
+        description: "Browse, play and edit your meetings without the MeetScribe overlay",
+        icon: fs.existsSync(icon) ? icon : process.execPath,
+        iconIndex: 0,
+      };
+      let current = null;
+      try { current = shell.readShortcutLink(link); } catch (_) { /* missing */ }
+      if (current && current.target === options.target && current.args === options.args) return;
+      shell.writeShortcutLink(link, current ? "replace" : "create", options);
+      logger.info("Library shortcut written to the transcript folder");
+    } catch (error) {
+      logger.warn("Could not write the library shortcut", { error: error.message });
     }
   }
 
@@ -305,6 +417,9 @@ class ApplicationController {
         folder: meetingService.folder,
         finalPass: offlinePass.getStatus(),
         whisperReady: transcriptionService.isAvailable(),
+        // "library": started with --library, no overlay windows.
+        mode: this.libraryOnly ? "library" : "app",
+        version: config.get("app.version"),
       }),
       models: () => this.listModels(),
       queue: () => offlinePass.getStatus(),
@@ -324,10 +439,16 @@ class ApplicationController {
       profiles: () => this.listProfiles(),
       selectProfile: (id) => this.selectProfile(id),
       resetProfile: (id) => this.resetProfile(id),
-      updateProfile: (id, values) => this.updateProfile(id, values),
-      downloadModel: (id) => this.downloadModel(id),
+      updateProfile: (id, values, meta) => this.updateProfile(id, values, meta),
+      createProfile: (options) => this.createProfile(options),
+      deleteProfile: (id) => this.deleteProfile(id),
+      downloadModel: (id, options) => this.downloadModel(id, options),
       deleteModel: (id) => this.deleteModel(id),
+      searchModels: (query) => modelStore.searchHub(query),
+      openApp: () => this.leaveLibraryOnly(),
     });
+    // Library-only mode ends when the manager has been closed for a while.
+    managerServer.on("stopped", () => this.onManagerStopped());
     // Everything the overlay hears about the final pass, the manager hears too.
     for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
       offlinePass.on(event, (payload) => {
@@ -678,10 +799,10 @@ class ApplicationController {
     return rows.map((row) => ({ ...row, estimate: speedStats.estimate(row.id, row, mode, threads) }));
   }
 
-  downloadModel(id) {
+  downloadModel(id, options = {}) {
     try {
       // Progress and the outcome arrive as "model-progress" events.
-      modelStore.download(id, transcriptionService.getPaths()).catch(() => {});
+      modelStore.download(id, transcriptionService.getPaths(), options).catch(() => {});
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -824,13 +945,16 @@ class ApplicationController {
 
     // Edits made under an active profile are remembered by that profile.
     // Picking a profile passes its own values through here too, which is a no-op.
-    if (!patch.profiles) {
-      const stored = profiles.recordEdit(next.activeProfile, patch, next, next.profiles);
-      if (stored !== next.profiles) next = settingsStore.update({ profiles: stored });
+    if (!patch.profiles && !patch.myProfiles) {
+      const remembered = profiles.recordEdit(next.activeProfile, patch, next);
+      if (remembered) next = settingsStore.update(remembered);
     }
 
     if (patch.appIcon && patch.appIcon !== previous.appIcon) {
       this.updateAppIcon(patch.appIcon);
+    }
+    if (patch.transcriptRoot && patch.transcriptRoot !== previous.transcriptRoot) {
+      this.ensureLibraryShortcut();
     }
     if (patch.windowGap !== undefined) {
       windowManager.setWindowGap(Number(patch.windowGap) || 10);
@@ -848,13 +972,13 @@ class ApplicationController {
 
   listProfiles() {
     const settings = settingsStore.all();
-    return { active: settings.activeProfile, profiles: profiles.listProfiles(settings.profiles) };
+    return { active: profiles.activeId(settings), profiles: profiles.listProfiles(settings, settingsStore.defaults()) };
   }
 
   selectProfile(id) {
     try {
       const settings = settingsStore.all();
-      const { patch } = profiles.select(id, settings, settings.profiles);
+      const { patch } = profiles.select(id, settings, settingsStore.defaults());
       this.saveSettings(patch);
       return { ok: true, settings: this.getSettings(), ...this.listProfiles() };
     } catch (error) {
@@ -862,26 +986,55 @@ class ApplicationController {
     }
   }
 
+  /** Store a profile change, then re-apply it if it is the active profile. */
+  _profileChanged(id, patch) {
+    const settings = settingsStore.all();
+    settingsStore.update(patch);
+    if (id && id === settings.activeProfile && profiles.getProfile(id, settingsStore.all())) return this.selectProfile(id);
+    managerServer.broadcast("settings", { reason: "profile" });
+    windowManager.broadcastToAllWindows("load-settings", this.getSettings());
+    return { ok: true, ...this.listProfiles() };
+  }
+
   /** Edit any profile's values (browser manager); the active one is applied at once. */
-  updateProfile(id, values) {
+  updateProfile(id, values, meta = {}) {
+    try {
+      return this._profileChanged(id, profiles.update(id, values, settingsStore.all(), meta));
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /** A new profile of the user's own; `fromId` copies another profile, otherwise the current settings. */
+  createProfile({ label, flag, fromId, activate }) {
     try {
       const settings = settingsStore.all();
-      const stored = profiles.update(id, values, settings.profiles);
-      settingsStore.update({ profiles: stored });
-      if (id === settings.activeProfile) return this.selectProfile(id);
+      const source = fromId ? profiles.getProfile(fromId, settings, settingsStore.defaults()) : null;
+      if (fromId && !source) throw new Error("Unknown profile: " + fromId);
+      const { id, patch } = profiles.create({ label, flag, values: source ? source.values : settings }, settings);
+      settingsStore.update(patch);
+      if (activate) return { ...this.selectProfile(id), id };
       managerServer.broadcast("settings", { reason: "profile" });
-      return { ok: true, ...this.listProfiles() };
+      return { ok: true, id, ...this.listProfiles() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  deleteProfile(id) {
+    try {
+      return this._profileChanged(null, profiles.remove(id, settingsStore.all()));
     } catch (error) {
       return { ok: false, error: error.message };
     }
   }
 
   resetProfile(id) {
-    const settings = settingsStore.all();
-    const stored = profiles.reset(id, settings.profiles);
-    settingsStore.update({ profiles: stored });
-    // The active profile's values change under the user: re-apply them.
-    return id === settings.activeProfile ? this.selectProfile(id) : { ok: true, ...this.listProfiles() };
+    try {
+      return this._profileChanged(id, profiles.reset(id, settingsStore.all()));
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
   }
 
   setupIPCHandlers() {
@@ -903,6 +1056,8 @@ class ApplicationController {
     ipcMain.handle("meeting:rerun-final", (_event, folder) => this.rerunFinalPass(folder));
 
     ipcMain.handle("manager:open", () => this.openManager());
+    ipcMain.handle("app:library-only", () => this.enterLibraryOnly());
+    ipcMain.handle("glossaries:list", () => libraryService.projectGlossaries().map(({ name, terms }) => ({ name, terms })));
 
     ipcMain.handle("meeting:pick-and-rerun", async () => {
       const result = await dialog.showOpenDialog({
@@ -1186,6 +1341,7 @@ class ApplicationController {
   }
 
   onWindowAllClosed() {
+    if (this.libraryOnly) return;
     if (process.platform !== "darwin") app.quit();
   }
 
@@ -1348,5 +1504,5 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   const controller = new ApplicationController();
-  app.on("second-instance", () => controller.handleSecondInstance());
+  app.on("second-instance", (_event, argv) => controller.handleSecondInstance(argv));
 }

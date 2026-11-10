@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rerunFinalPass: (folder) => ipcRenderer.invoke('meeting:rerun-final', folder),
   pickAndRerunFinalPass: () => ipcRenderer.invoke('meeting:pick-and-rerun'),
   openManager: () => ipcRenderer.invoke('manager:open'),
+  libraryOnly: () => ipcRenderer.invoke('app:library-only'),
+  listGlossaries: () => ipcRenderer.invoke('glossaries:list'),
 
   // ── Audio engine (called from the hidden capture renderer) ──
   sendAudioChunk: (streamId, buffer) => ipcRenderer.send('audio-chunk', { streamId, buffer }),
