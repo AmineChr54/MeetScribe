@@ -4,7 +4,7 @@ const path = require('path');
 const https = require('https');
 const readline = require('readline');
 const EventEmitter = require('events');
-const { spawn, spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 const settingsStore = require('../core/settings.store');
 const { SpeakerTracker, average, cosine } = require('../core/speaker-tracker');
 const { pcmToWav, rmsOf } = require('../core/wav');
@@ -44,6 +44,8 @@ class VoiceService extends EventEmitter {
     this.lastAt = 0;
     this.enrollmentChunks = null;
     this.busy = false;
+    // Result of the last "is sherpa-onnx installed" probe; null = not asked yet.
+    this.packageReady = null;
   }
 
   configure(paths) {
@@ -77,21 +79,41 @@ class VoiceService extends EventEmitter {
 
   // ── Status / setup ──
 
+  /**
+   * Is sherpa-onnx importable? Asked every time Settings opens, so it must not
+   * block the main process: the probe runs async and a positive answer is kept
+   * (the package does not uninstall itself; setup() re-asks after installing).
+   */
   hasPackage() {
-    if (!this.paths || !this.paths.python || !fs.existsSync(this.paths.python)) return false;
-    const probe = spawnSync(this.paths.python, ['-I', '-c', 'import sherpa_onnx'], {
-      windowsHide: true,
-      env: this.paths.env,
-      timeout: 20000
+    if (!this.paths || !this.paths.python || !fs.existsSync(this.paths.python)) return Promise.resolve(false);
+    if (this.packageReady) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const child = spawn(this.paths.python, ['-I', '-c', 'import sherpa_onnx'], {
+        windowsHide: true,
+        env: this.paths.env,
+        stdio: 'ignore'
+      });
+      const timer = setTimeout(() => { try { child.kill(); } catch (_) { /* gone */ } }, 20000);
+      const done = (ready) => {
+        clearTimeout(timer);
+        this.packageReady = ready;
+        resolve(ready);
+      };
+      child.on('error', () => done(false));
+      child.on('close', (code) => done(code === 0));
     });
-    return probe.status === 0;
   }
 
-  status() {
+  /** Cheap, for callers that only need to know whether the mic is taken. */
+  isEnrolling() {
+    return Boolean(this.enrollmentChunks);
+  }
+
+  async status() {
     const voiceprint = this.loadVoiceprint();
     const model = this.modelPath();
     return {
-      packageReady: this.hasPackage(),
+      packageReady: await this.hasPackage(),
       modelReady: Boolean(model && fs.existsSync(model)),
       enrolled: Boolean(voiceprint),
       enrolledAt: voiceprint ? voiceprint.createdAt : null,
@@ -108,9 +130,10 @@ class VoiceService extends EventEmitter {
     }
     this.busy = true;
     try {
-      if (!this.hasPackage()) {
+      if (!(await this.hasPackage())) {
         this.emit('progress', 'Installing sherpa-onnx…');
         await this._run(this.paths.python, ['-m', 'pip', 'install', '--upgrade', 'sherpa-onnx', '--disable-pip-version-check']);
+        this.packageReady = null;
       }
       const model = this.modelPath();
       if (!fs.existsSync(model)) {
@@ -119,7 +142,7 @@ class VoiceService extends EventEmitter {
         await this._download(MODEL_URL, model);
       }
       this.emit('progress', 'Ready.');
-      return this.status();
+      return await this.status();
     } finally {
       this.busy = false;
     }
@@ -208,6 +231,9 @@ class VoiceService extends EventEmitter {
       this.pending.clear();
     };
     child.on('error', fail);
+    // A worker that died closes its stdin; without a listener the next write
+    // would be an unhandled 'error' event in the main process.
+    child.stdin.on('error', (error) => logger.debug('Worker stdin error', { error: error.message }));
     child.on('close', (code) => fail(new Error(`Voice worker exited with code ${code}`)));
   }
 
@@ -236,7 +262,12 @@ class VoiceService extends EventEmitter {
         reject(new Error('Voice worker timed out'));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.process.stdin.write(JSON.stringify({ id, ...payload }) + '\n');
+      this.process.stdin.write(JSON.stringify({ id, ...payload }) + '\n', (error) => {
+        if (!error) return;
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      });
     });
   }
 

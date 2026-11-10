@@ -363,6 +363,15 @@ class ApplicationController {
   async startRecording() {
     if (transcriptionService.isRecording) return meetingService.getStatus();
 
+    // Enrollment owns the microphone capture; starting a meeting now would
+    // replace it, and the end of enrollment would then stop the meeting's audio.
+    if (voiceService.isEnrolling()) {
+      const message = "Voice enrollment is still recording. Start the meeting when it has finished.";
+      windowManager.broadcastToAllWindows("transcription-error", { message });
+      logger.warn(message);
+      return null;
+    }
+
     if (transcriptionService.isLiveEnabled() && !transcriptionService.isAvailable()) {
       const message =
         'Whisper is not set up yet. Open Settings (Ctrl+,) → Transcription → "Install / Repair Whisper".';
@@ -1175,6 +1184,7 @@ class ApplicationController {
     offlinePass.shutdown();
     meetingService.shutdown();
     transcriptionService.shutdown();
+    voiceService.shutdown();
     windowManager.destroyAllWindows();
     logger.info("Application shutting down");
   }
@@ -1185,6 +1195,7 @@ class ApplicationController {
       offlinePass.shutdown();
       meetingService.shutdown();
       transcriptionService.shutdown();
+      voiceService.shutdown();
       windowManager.destroyAllWindows();
       globalShortcut.unregisterAll();
       app.quit();

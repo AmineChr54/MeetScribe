@@ -69,6 +69,8 @@ const STOCK_PHRASES = {
 // things like "Bisssss…sss" — one 500-character "word" that sails through both
 // the phrase and the token repetition guards, because it is a single token.
 const CHARACTER_RUN_LIMIT = 24;
+// How long a finished line waits for its speaker label before going out without one.
+const LABEL_GRACE_MS = 1500;
 
 /**
  * One audio stream's worth of voice-activity detection and segmentation.
@@ -351,10 +353,15 @@ class TranscriptionStream extends EventEmitter {
       const labeling = this.labeler
         ? Promise.resolve(this.labeler(wavPath, durationMs)).catch(() => null)
         : Promise.resolve(null);
-      const [result, speakerLabel] = await Promise.all([
-        this.transcriber.transcribe(wavPath, { streamId: this.id, audioMs: durationMs }),
-        labeling
+      const result = await this.transcriber.transcribe(wavPath, { streamId: this.id, audioMs: durationMs });
+      // The label is a nicety: it normally arrives long before the text, and a
+      // slow or wedged labeler gets a short grace period, never the line.
+      let graceTimer;
+      const speakerLabel = await Promise.race([
+        labeling,
+        new Promise((resolve) => { graceTimer = setTimeout(() => resolve(null), LABEL_GRACE_MS); })
       ]);
+      clearTimeout(graceTimer);
       const raw = result && result.text ? String(result.text) : '';
       const text = this._sanitize(raw);
 

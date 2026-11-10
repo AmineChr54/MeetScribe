@@ -279,10 +279,7 @@ class SettingsWindow {
 
   bindVoice() {
     const status = document.getElementById('voiceStatus');
-    const busy = (button, on, label) => {
-      button.disabled = on;
-      if (label) button.dataset.label = button.dataset.label || button.textContent;
-    };
+    const busy = (button, on) => { button.disabled = on; };
     window.electronAPI.onVoiceProgress((line) => { status.textContent = String(line); });
 
     document.getElementById('voiceSetup').addEventListener('click', async (event) => {

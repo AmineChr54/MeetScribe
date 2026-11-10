@@ -19,6 +19,7 @@ MeetScribe is an Electron app (main process + several renderer windows) that she
 3. **Whisper pool** (`whisper-pool.service.js`): serialises requests onto N persistent workers (default 1, queue cap 6).
 4. **Worker** (`whisper-worker.service.js` + `scripts/whisper_worker.py`): a spawned Python process speaking a JSON-lines protocol on stdin/stdout, unloads the model when idle.
 5. **Echo suppression** (`transcription.service.js`): drops *You* lines that match recent *Them* lines.
+   Optional speaker labels (`voice.service.js` + `scripts/voice_worker.py`, grouping in `src/core/speaker-tracker.js`): mic utterances are compared with an enrolled voiceprint and labelled *You* or *Other n*. Live transcript only (the final pass keeps the stream label), and a line never waits more than 1.5 s for its label.
 6. **Meeting file** (`meeting.service.js`): one folder per meeting, fsync'd append-only transcript. Lines are reordered by speech *start* time inside a 1200 ms window (15 s max hold).
 
 ## Archive and offline pass
