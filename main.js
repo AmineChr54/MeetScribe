@@ -217,19 +217,20 @@ class ApplicationController {
   //
   // MeetScribe without its overlay: only the browser manager's local server.
   // Entered by starting with --library (the shortcut in the transcript folder)
-  // or with the overlay's "library only" button; left by starting MeetScribe
-  // normally or with "Open MeetScribe" in the manager. It quits by itself once
+  // or with the power button in the library's header; left by starting
+  // MeetScribe normally or with the same button in the library. It quits by itself once
   // the manager has been closed for a while and no final pass is running.
 
-  async enterLibraryOnly() {
+  /** Asked for from the library page itself, which stays open. */
+  enterLibraryOnly() {
     if (transcriptionService.isRecording) return { ok: false, error: "Stop the recording first" };
+    if (this.libraryOnly) return { ok: true };
     this.libraryOnly = true;
     globalShortcut.unregisterAll();
     windowManager.hideAllWindows();
     logger.info("Switched to library-only mode");
-    const opened = await this.openManager();
     managerServer.broadcast("status", { mode: "library" });
-    return opened;
+    return { ok: true };
   }
 
   async leaveLibraryOnly() {
@@ -447,6 +448,7 @@ class ApplicationController {
       deleteModel: (id) => this.deleteModel(id),
       searchModels: (query) => modelStore.searchHub(query),
       openApp: () => this.leaveLibraryOnly(),
+      libraryOnly: () => this.enterLibraryOnly(),
     });
     // Library-only mode ends when the manager has been closed for a while.
     managerServer.on("stopped", () => this.onManagerStopped());
@@ -1125,7 +1127,6 @@ class ApplicationController {
     ipcMain.handle("meeting:rerun-final", (_event, folder) => this.rerunFinalPass(folder));
 
     ipcMain.handle("manager:open", () => this.openManager());
-    ipcMain.handle("app:library-only", () => this.enterLibraryOnly());
     ipcMain.handle("glossaries:list", () => libraryService.projectGlossaries().map(({ name, terms }) => ({ name, terms })));
 
     ipcMain.handle("meeting:pick-and-rerun", async () => {

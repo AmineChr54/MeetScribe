@@ -178,8 +178,8 @@ button:focus-visible, .chip:focus-within { outline: 2px solid var(--accent); out
   min-height: 0;
   padding-bottom: 6px;
 }
-.brand { display: flex; align-items: center; gap: 11px; padding: 18px 16px 12px; }
-.logo { width: 34px; height: 34px; filter: drop-shadow(0 3px 8px rgba(240, 86, 46, 0.35)); }
+.brand { display: flex; align-items: center; gap: 10px; padding: 18px 10px 12px 14px; }
+.logo { width: 32px; height: 32px; flex: none; filter: drop-shadow(0 3px 8px rgba(240, 86, 46, 0.35)); }
 .wordmark {
   font-weight: 700;
   font-size: 17px;
@@ -196,7 +196,13 @@ button:focus-visible, .chip:focus-within { outline: 2px solid var(--accent); out
 .dot.rec { background: var(--danger); animation: pulse-red 1.2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(31, 157, 85, 0.45); } 70% { box-shadow: 0 0 0 7px rgba(31, 157, 85, 0); } 100% { box-shadow: 0 0 0 0 rgba(31, 157, 85, 0); } }
 @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(220, 47, 60, 0.5); } 70% { box-shadow: 0 0 0 7px rgba(220, 47, 60, 0); } 100% { box-shadow: 0 0 0 0 rgba(220, 47, 60, 0); } }
-#openAppBtn { margin: 0 14px 10px; justify-content: center; }
+.brand-text { flex: 1; min-width: 0; }
+.wordmark { white-space: nowrap; font-size: 16px; }
+.wordmark span { font-weight: 500; opacity: 0.85; }
+.status span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app-toggle { color: var(--muted); align-self: center; }
+.app-toggle:hover { background: var(--danger-soft); color: var(--danger); }
+.app-toggle.open:hover { background: var(--ok-soft); color: var(--ok); }
 
 .search {
   display: flex;
@@ -313,6 +319,9 @@ button:focus-visible, .chip:focus-within { outline: 2px solid var(--accent); out
 .meeting:hover { background: var(--pane-2); border-color: var(--border); }
 .meeting.active { background: var(--accent-softer); border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .meeting.dragging { opacity: 0.4; }
+.meeting.picked { background: var(--accent-softer); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.meeting.picked.active { border-color: var(--accent); }
+#selectAllBtn.on { color: var(--accent-ink); background: var(--accent-soft); }
 .meeting .pick { margin-top: 3px; accent-color: var(--accent); cursor: pointer; }
 .meeting .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .meeting .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

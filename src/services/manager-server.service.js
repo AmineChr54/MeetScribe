@@ -369,6 +369,7 @@ class ManagerServer extends EventEmitter {
       }), (result) => ({ id: result.id })),
       'profiles/delete': (body) => this._unwrap(need('deleteProfile')(String(body.id || '')), () => ({})),
       'app/open': () => need('openApp')(),
+      'app/library-only': () => this._unwrap(need('libraryOnly')(), () => ({})),
       'models/download': (body) => {
         const options = {};
         if (body.convert !== undefined) options.convert = body.convert === true;

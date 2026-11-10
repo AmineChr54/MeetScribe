@@ -83,6 +83,8 @@
   const ICONS = {
     plus: 'M12 5v14M5 12h14',
     x: 'M6 6l12 12M18 6L6 18',
+    square: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
+    'check-square': 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8 12.5l3 3 5.5-6.5',
     check: 'M5 12.5l4.5 4.5L19 7',
     'chevron-down': 'M6 9l6 6 6-6',
     'arrow-up': 'M12 19V5M6 11l6-6 6 6',
@@ -524,6 +526,10 @@
         state.query = '';
         state.results = null;
       }
+      if (state.folder !== id) {
+        state.selected.clear();
+        state.anchor = null;
+      }
       state.folder = id;
       state.view = 'list';
       renderFolders();
@@ -690,11 +696,19 @@
         class: 'pick',
         title: 'Select for bulk actions',
         'aria-label': 'Select ' + (meeting.title || meeting.name),
-        onclick: (event) => event.stopPropagation(),
+        onclick: (event) => {
+          event.stopPropagation();
+          // Shift on the checkbox picks the whole range, like on the row.
+          if (event.shiftKey && state.anchor) {
+            event.preventDefault();
+            pickRange(meeting.id);
+          }
+        },
         onchange: (event) => {
           if (event.target.checked) state.selected.add(meeting.id);
           else state.selected.delete(meeting.id);
-          renderBulk();
+          state.anchor = meeting.id;
+          markPicked();
         }
       });
       pick.checked = state.selected.has(meeting.id);
@@ -720,12 +734,26 @@
         }
       }
       const item = el('li', {
-        class: 'meeting' + (state.meeting && state.meeting.id === meeting.id ? ' active' : ''),
+        class: 'meeting' + (state.meeting && state.meeting.id === meeting.id ? ' active' : '') + (state.selected.has(meeting.id) ? ' picked' : ''),
         dataset: { id: meeting.id },
         tabindex: '0',
         draggable: meeting.state ? null : 'true',
-        title: meeting.state ? null : 'Drag onto a folder to move it',
-        onclick: () => openMeeting(meeting.id),
+        title: meeting.state ? null : 'Drag onto a folder to move it · Ctrl+click to select, Shift+click for a range',
+        // Shift+click would select the text in between.
+        onmousedown: (event) => { if (event.shiftKey) event.preventDefault(); },
+        onclick: (event) => {
+          if (event.ctrlKey || event.metaKey) {
+            if (state.selected.has(meeting.id)) state.selected.delete(meeting.id);
+            else state.selected.add(meeting.id);
+            state.anchor = meeting.id;
+            markPicked();
+          } else if (event.shiftKey) {
+            pickRange(meeting.id);
+          } else {
+            state.anchor = meeting.id;
+            openMeeting(meeting.id);
+          }
+        },
         onkeydown: (event) => { if (event.key === 'Enter') openMeeting(meeting.id); }
       }, [pick, body]);
       item.addEventListener('dragstart', (event) => {
@@ -746,6 +774,49 @@
     const count = state.selected.size;
     $('bulkBar').hidden = count === 0;
     $('bulkCount').textContent = `${count} selected`;
+    const visible = visibleMeetings();
+    const all = visible.length > 0 && visible.every((meeting) => state.selected.has(meeting.id));
+    const button = $('selectAllBtn');
+    button.disabled = !visible.length;
+    button.classList.toggle('on', all);
+    button.title = all ? 'Clear the selection (Ctrl+A)' : 'Select every meeting in this list (Ctrl+A)';
+    button.setAttribute('aria-label', button.title);
+    setIcon(button, all ? 'check-square' : 'square');
+  }
+
+  /** Reflect the selection on the rows without rebuilding the list. */
+  function markPicked() {
+    document.querySelectorAll('#meetings .meeting').forEach((node) => {
+      const picked = state.selected.has(node.dataset.id);
+      node.classList.toggle('picked', picked);
+      const box = node.querySelector('.pick');
+      if (box) box.checked = picked;
+    });
+    renderBulk();
+  }
+
+  /** Shift+click: everything between the last clicked meeting and this one, in list order. */
+  function pickRange(id) {
+    const order = visibleMeetings().map((meeting) => meeting.id);
+    const from = order.indexOf(state.anchor);
+    const to = order.indexOf(id);
+    if (from < 0 || to < 0) {
+      state.selected.add(id);
+    } else {
+      for (let i = Math.min(from, to); i <= Math.max(from, to); i++) state.selected.add(order[i]);
+    }
+    state.anchor = state.anchor || id;
+    markPicked();
+  }
+
+  function toggleSelectAll() {
+    const visible = visibleMeetings();
+    const all = visible.length > 0 && visible.every((meeting) => state.selected.has(meeting.id));
+    for (const meeting of visible) {
+      if (all) state.selected.delete(meeting.id);
+      else state.selected.add(meeting.id);
+    }
+    markPicked();
   }
 
   const byId = (id) => state.library.meetings.find((meeting) => meeting.id === id);
@@ -2197,12 +2268,35 @@
     dot.className = 'dot ' + (!up ? 'down' : recording ? 'rec' : 'up');
     $('statusText').textContent = !up ? 'Server not reachable'
       : recording ? 'Recording now'
-        : mode === 'library' ? 'Library only · server running'
-          : 'Server running · app open';
+        : mode === 'library' ? 'Running · app closed'
+          : 'Running · app open';
     $('status').title = !up
-      ? 'The library server is not answering. It stops when MeetScribe quits; start MeetScribe or the library shortcut again.'
-      : `The local library server answers at ${location.host}.`;
-    $('openAppBtn').hidden = !up || mode !== 'library';
+      ? 'MeetScribe Library is not answering. It stops when MeetScribe quits; start MeetScribe or the Library shortcut again.'
+      : `MeetScribe Library answers at ${location.host}.`;
+    // One small button: close the overlay (keep the library), or bring it back.
+    const toggle = $('appToggle');
+    toggle.hidden = !up;
+    const library = mode === 'library';
+    setIcon(toggle, library ? 'monitor' : 'power');
+    toggle.classList.toggle('open', library);
+    toggle.title = library ? 'Open MeetScribe again' : 'Close MeetScribe and keep only the Library';
+    toggle.setAttribute('aria-label', toggle.title);
+  }
+
+  async function toggleApp() {
+    if (state.server.mode === 'library') return openApp();
+    const values = await ask({
+      title: 'Close MeetScribe and keep the Library?',
+      text: 'The MeetScribe overlay closes; this page keeps working. The Library quits by itself a few minutes after you close its last tab. Start MeetScribe again to bring the overlay back.',
+      ok: 'Close MeetScribe'
+    });
+    if (!values) return undefined;
+    const result = await attempt(() => post('/api/app/library-only', {}), 'Could not close MeetScribe');
+    if (result) {
+      toast('MeetScribe is closed; the Library keeps running');
+      loadStatus();
+    }
+    return undefined;
   }
 
   async function loadStatus() {
@@ -2342,7 +2436,8 @@
     ]));
     $('dialogCancel').addEventListener('click', () => $('dialog').close('cancel'));
     $('newFolderBtn').addEventListener('click', () => newFolder(''));
-    $('openAppBtn').addEventListener('click', openApp);
+    $('appToggle').addEventListener('click', toggleApp);
+    $('selectAllBtn').addEventListener('click', toggleSelectAll);
     $('glossaryApply').addEventListener('click', () => {
       const names = [...$('meetingGlossaryPicks').querySelectorAll('input:checked')].map((box) => box.value);
       if (!names.length) return toast('Tick at least one glossary, or pick “No glossary”');
@@ -2423,6 +2518,18 @@
       }
       if (event.key === 'Escape' && !$('menu').hidden) {
         closeMenu();
+        return;
+      }
+      if (event.key === 'Escape' && !typing && !$('dialog').open && state.selected.size) {
+        state.selected.clear();
+        markPicked();
+        return;
+      }
+      // Ctrl+A in the library list: select (or clear) every meeting shown.
+      if ((event.ctrlKey || event.metaKey) && (event.key === 'a' || event.key === 'A') && !typing && !$('dialog').open &&
+        (!state.page || state.page === 'library')) {
+        event.preventDefault();
+        toggleSelectAll();
         return;
       }
       if (typing || $('dialog').open || event.ctrlKey || event.metaKey || event.altKey) return;
