@@ -58,6 +58,8 @@ const audioArchive = require("./src/services/audio-archive.service");
 const offlinePass = require("./src/services/offline-pass.service");
 const modelStore = require("./src/services/model-store.service");
 const profiles = require("./src/core/profiles");
+const libraryService = require("./src/services/library.service");
+const managerServer = require("./src/services/manager-server.service");
 const speedStats = require("./src/services/speed-stats.service");
 const windowManager = require("./src/managers/window.manager");
 
@@ -284,6 +286,40 @@ class ApplicationController {
   }
 
   setupServiceEventHandlers() {
+    // The browser manager marks meetings that are recording or being
+    // transcribed, and refuses to touch them.
+    libraryService.setBusyProvider(() => {
+      const pass = offlinePass.getStatus();
+      return {
+        recordingFolder: transcriptionService.isRecording ? meetingService.folder : null,
+        runningFolder: pass.folder,
+        queuedFolders: pass.queued,
+      };
+    });
+    managerServer.setApi({
+      status: () => ({
+        recording: transcriptionService.isRecording,
+        folder: meetingService.folder,
+        finalPass: offlinePass.getStatus(),
+      }),
+    });
+    // Everything the overlay hears about the final pass, the manager hears too.
+    for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
+      offlinePass.on(event, (payload) => {
+        managerServer.broadcast("final-pass", {
+          state: event === "progress" ? payload.state : event,
+          ...payload,
+          message:
+            event === "done" ? "Final transcript ready"
+              : event === "failed" ? `Final pass failed: ${payload.error}`
+                : event === "cancelled" ? "Final pass cancelled"
+                  : event === "queued" ? `Final pass queued (${payload.waiting} waiting)`
+                    : payload.message,
+        });
+      });
+    }
+    modelStore.on("progress", (payload) => managerServer.broadcast("model-progress", payload));
+
     // Lets the writer hold an instantaneous event (screenshot, marker) until
     // speech that started earlier has come back from Whisper.
     meetingService.setPendingProvider(() => transcriptionService.oldestPendingStartedAt());
@@ -421,6 +457,7 @@ class ApplicationController {
       showTranscript: settingsStore.get("showTranscriptOnRecord") !== false,
     });
     windowManager.broadcastToAllWindows("meeting-started", status);
+    managerServer.broadcast("library", { reason: "meeting-started" });
     logger.info("Recording started", { folder: status.folder });
     return status;
   }
@@ -439,6 +476,7 @@ class ApplicationController {
 
     windowManager.handleRecordingStopped();
     windowManager.broadcastToAllWindows("meeting-stopped", status);
+    managerServer.broadcast("library", { reason: "meeting-stopped" });
     logger.info("Recording stopped", { folder: status.folder });
 
     // The final pass runs in the background: it takes minutes, and nothing in
@@ -707,6 +745,18 @@ class ApplicationController {
     return { ok: true };
   }
 
+  /** Start the manager's local server if needed and open it in the default browser. */
+  async openManager() {
+    try {
+      const url = await managerServer.open();
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      logger.error("Could not open the manager", { error: error.message });
+      return { ok: false, error: error.message };
+    }
+  }
+
   openMeetingFolder() {
     const folder = meetingService.folder || settingsStore.get("transcriptRoot");
     try {
@@ -806,6 +856,8 @@ class ApplicationController {
     ipcMain.handle("meeting:add-marker", (_event, text) => this.addMarker(text));
     ipcMain.handle("meeting:final-status", () => offlinePass.getStatus());
     ipcMain.handle("meeting:rerun-final", (_event, folder) => this.rerunFinalPass(folder));
+
+    ipcMain.handle("manager:open", () => this.openManager());
 
     ipcMain.handle("meeting:pick-and-rerun", async () => {
       const result = await dialog.showOpenDialog({
@@ -1113,6 +1165,7 @@ class ApplicationController {
     offlinePass.shutdown();
     meetingService.shutdown();
     transcriptionService.shutdown();
+    managerServer.stop();
     windowManager.destroyAllWindows();
     logger.info("Application shutting down");
   }
@@ -1123,6 +1176,7 @@ class ApplicationController {
       offlinePass.shutdown();
       meetingService.shutdown();
       transcriptionService.shutdown();
+      managerServer.stop();
       windowManager.destroyAllWindows();
       globalShortcut.unregisterAll();
       app.quit();

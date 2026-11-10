@@ -175,6 +175,10 @@ class SettingsWindow {
       window.electronAPI.openMeetingFolder();
     });
 
+    document.getElementById('openManager').addEventListener('click', () => {
+      window.electronAPI.openManager();
+    });
+
     document.getElementById('browsePython').addEventListener('click', async () => {
       const result = await window.electronAPI.pickPython();
       if (result.ok) {

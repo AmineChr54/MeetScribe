@@ -36,6 +36,7 @@ class MainWindowUI {
     document.getElementById('shotBtn').addEventListener('click', () => window.electronAPI.takeScreenshot());
     document.getElementById('transcriptBtn').addEventListener('click', () => window.electronAPI.toggleTranscript());
     document.getElementById('folderBtn').addEventListener('click', () => window.electronAPI.openMeetingFolder());
+    document.getElementById('libraryBtn').addEventListener('click', () => window.electronAPI.openManager());
     document.getElementById('settingsBtn').addEventListener('click', () => window.electronAPI.showSettings());
     this.status.addEventListener('click', () => window.electronAPI.toggleInteraction());
     this.warn.addEventListener('click', () => window.electronAPI.showSettings());

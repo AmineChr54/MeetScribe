@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MeetScribe Library</title>
+  <link rel="stylesheet" href="/manager.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">MeetScribe <span>Library</span></div>
+      <label class="search">
+        <input type="search" id="search" placeholder="Search all transcripts  ( / )" autocomplete="off" />
+      </label>
+      <nav id="folders" class="folders" aria-label="Folders"></nav>
+      <div class="sidebar-foot">
+        <div id="totals" class="muted"></div>
+        <div id="connection" class="muted"></div>
+      </div>
+    </aside>
+
+    <section class="list-pane">
+      <div class="list-head">
+        <h2 id="listTitle">All meetings</h2>
+        <select id="sort" aria-label="Sort">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="longest">Longest first</option>
+          <option value="largest">Largest first</option>
+        </select>
+      </div>
+      <div id="queue" class="queue" hidden></div>
+      <ul id="meetings" class="meetings"></ul>
+      <p id="emptyList" class="empty" hidden>No meetings here yet.</p>
+    </section>
+
+    <main class="detail" id="detail">
+      <div class="placeholder" id="placeholder">
+        <p>Pick a meeting to read and play it.</p>
+        <p class="muted">Space play/pause · ←/→ 5 s · J/K previous/next line · L loop line · [ ] speed · / search</p>
+      </div>
+
+      <div id="meetingView" hidden>
+        <header class="meeting-head">
+          <div>
+            <h1 id="meetingTitle"></h1>
+            <div class="meta" id="meetingMeta"></div>
+          </div>
+          <div class="badges" id="meetingBadges"></div>
+        </header>
+
+        <div class="player" id="player">
+          <button id="playBtn" class="play" title="Play / pause (Space)" aria-label="Play">▶</button>
+          <span id="clock" class="clock">00:00</span>
+          <input type="range" id="seek" min="0" max="1000" value="0" aria-label="Position" />
+          <span id="duration" class="clock">00:00</span>
+          <div class="player-tools">
+            <select id="speed" title="Speed ([ and ])" aria-label="Speed">
+              <option value="0.75">0.75×</option>
+              <option value="1" selected>1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+              <option value="1.75">1.75×</option>
+              <option value="2">2×</option>
+            </select>
+            <div id="solo" class="segmented" role="group" aria-label="Streams"></div>
+            <label class="toggle" title="Jump over silences longer than 2 s"><input type="checkbox" id="skipSilence" /> Skip silence</label>
+            <label class="toggle" title="Repeat the current line (L)"><input type="checkbox" id="loopLine" /> Loop line</label>
+            <label class="toggle" title="Keep the current line in view"><input type="checkbox" id="follow" checked /> Follow</label>
+          </div>
+          <p id="noAudio" class="muted" hidden>No archived audio for this meeting.</p>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="transcript" role="tab">Transcript</button>
+          <button class="tab" data-tab="details" role="tab">Details</button>
+        </div>
+
+        <div class="tab-page" id="tab-transcript">
+          <div class="transcript-tools">
+            <span id="sourceNote" class="muted"></span>
+            <label class="toggle"><input type="checkbox" id="showMarkup" checked /> Show uncertain words</label>
+          </div>
+          <div id="transcript" class="transcript"></div>
+        </div>
+
+        <div class="tab-page" id="tab-details" hidden>
+          <dl id="detailsList" class="details"></dl>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div id="streams" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <script src="/manager.js"></script>
+</body>
+</html>
