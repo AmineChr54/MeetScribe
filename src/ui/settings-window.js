@@ -311,7 +311,7 @@ class SettingsWindow {
     for (const profile of profiles) {
       const card = document.createElement('button');
       card.className = 'profile' + (profile.id === active ? ' active' : '');
-      card.title = profile.summary;
+      card.title = profile.label + (profile.summary ? ' · ' + profile.summary : '');
       const flag = document.createElement('span');
       flag.className = 'flag';
       flag.innerHTML = window.MeetScribeFlags.svg(profile.flag);
