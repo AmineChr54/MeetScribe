@@ -29,7 +29,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 
 ### Changed
 
-- Several project glossaries in one meeting take turns in the final pass's short hotword list, one term from each in turn. Before, the first glossary picked could use up the whole list and the others were never used.
+- Several project glossaries in one meeting take turns in the final pass's short hotword list, one term from each in turn. Before, the first glossary picked could use up the whole list and the others were never used. A term that is in more than one of them is used once.
 
 ### Fixed
 

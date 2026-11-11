@@ -63,12 +63,22 @@
     return { sections: sections.filter((section) => section.length), contextPrompt: contextPrompt.trim() };
   }
 
-  /** One term from each section in turn. */
+  /**
+   * One term from each section in turn. A term already offered (in any case)
+   * is skipped: glossaries often share a name, and a repeat only spends budget.
+   */
   function interleave(sections) {
     const out = [];
+    const seen = new Set();
     const longest = Math.max(0, ...sections.map((section) => section.length));
     for (let i = 0; i < longest; i++) {
-      for (const section of sections) if (i < section.length) out.push(section[i]);
+      for (const section of sections) {
+        if (i >= section.length) continue;
+        const key = section[i].toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(section[i]);
+      }
     }
     return out;
   }

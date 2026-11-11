@@ -14,6 +14,16 @@ test('project glossaries take turns in the hotword order', () => {
   assert.equal(contextPrompt, 'A meeting about Acme.');
 });
 
+test('a term in several glossaries is offered once', () => {
+  const text = glossaries.compose([
+    { name: 'Acme', text: 'Acme, Claude, Zorblin' },
+    { name: 'Quandor', text: 'Quandor, claude, Acme, Billing' }
+  ]);
+  assert.deepEqual(budget.hotwords(text).terms, ['Acme', 'Quandor', 'Claude', 'Zorblin', 'Billing']);
+  assert.deepEqual(budget.forTexts(['Acme, Claude', 'Claude, Zorblin']), { kept: 3, total: 3 });
+  assert.deepEqual(budget.hotwords('Acme, Acme\nACME').terms, ['Acme']);
+});
+
 test('a plain glossary keeps its order', () => {
   assert.deepEqual(budget.hotwords('# note\nAcme, Zorblin\nQuandor').terms, ['Acme', 'Zorblin', 'Quandor']);
   assert.deepEqual(budget.hotwords('').terms, []);
