@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const settingsStore = require('../core/settings.store');
 const audioArchive = require('./audio-archive.service');
 const corrections = require('./corrections');
+const repeats = require('../core/repeats');
 const speedStats = require('./speed-stats.service');
 const transcriptRender = require('../core/transcript-render');
 const passOptions = require('../core/pass-options');
@@ -513,9 +514,10 @@ class OfflinePassService extends EventEmitter {
           label: stream.label,
           startedAt,
           endedAt,
-          text: segment.text,
+          // Loops the final pass could not decode again are collapsed here.
+          text: repeats.collapseText(segment.text),
           avgLogprob: segment.avg_logprob,
-          words: segment.words || [],
+          words: repeats.collapseWords(segment.words || []),
           diffWords: diffStream ? this._diffWordsInRange(diffStream, segment.start, segment.end) : []
         });
       }
