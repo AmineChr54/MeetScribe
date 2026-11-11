@@ -1127,7 +1127,7 @@ class ApplicationController {
     ipcMain.handle("meeting:rerun-final", (_event, folder) => this.rerunFinalPass(folder));
 
     ipcMain.handle("manager:open", () => this.openManager());
-    ipcMain.handle("glossaries:list", () => libraryService.projectGlossaries().map(({ name, terms }) => ({ name, terms })));
+    ipcMain.handle("glossaries:list", () => libraryService.projectGlossaries().map(({ name, terms, text }) => ({ name, terms, text })));
 
     ipcMain.handle("meeting:pick-and-rerun", async () => {
       const result = await dialog.showOpenDialog({

@@ -1417,6 +1417,12 @@
     return state.glossaries;
   }
 
+  /** "About N of M terms reach the model" for these project glossaries together. */
+  function glossaryFit(chosen) {
+    const budget = window.MeetScribeGlossaryBudget;
+    return budget ? budget.describe(budget.forTexts(chosen.map((glossary) => glossary.text || ''))) : '';
+  }
+
   async function loadGlossary() {
     const id = state.meeting.id;
     const [glossary, corrections, projects] = await Promise.all([
@@ -1430,11 +1436,16 @@
     $('glossaryApplied').textContent = '';
     const used = new Set((glossary ? glossary.glossaries : []).map((name) => name.toLowerCase()));
     const picks = $('meetingGlossaryPicks');
+    const showFit = () => {
+      const ticked = new Set([...picks.querySelectorAll('input:checked')].map((box) => box.value));
+      $('meetingGlossaryFit').textContent = glossaryFit(projects.filter((project) => ticked.has(project.name)));
+    };
     picks.replaceChildren(...projects.map((project) => {
-      const box = el('input', { type: 'checkbox', value: project.name });
+      const box = el('input', { type: 'checkbox', value: project.name, onchange: showFit });
       box.checked = used.has(project.name.toLowerCase());
       return el('label', { class: 'chip', title: `${project.terms} term${project.terms === 1 ? '' : 's'}` }, [box, icon('book'), project.name]);
     }));
+    showFit();
     if (!projects.length) {
       picks.append(el('span', { class: 'muted small' }, ['No project glossaries yet. ', el('button', { class: 'btn ghost small', type: 'button', onclick: () => showPage('glossaries') }, [icon('plus'), 'Make one'])]));
     }
@@ -1878,12 +1889,21 @@
         state.glossaryOpen = glossary.name;
         renderGlossaries();
       }
-    }, [icon('book'), el('span', { class: 'label', text: glossary.name }), el('span', { class: 'count', text: `${glossary.terms} term${glossary.terms === 1 ? '' : 's'}` })])));
+    }, [icon('book'), el('span', { class: 'label', text: glossary.name }), el('span', { class: 'count', text: termCount(glossary) })])));
     $('glossaryName').value = open ? open.name : '';
     $('glossaryBody').value = open ? open.text : '';
     $('glossaryDeleteBtn').hidden = !open;
     $('glossaryStatus').textContent = creating ? 'A new glossary: give it a name and its terms.' : '';
     if (creating) $('glossaryName').focus();
+  }
+
+  /** "12 terms", or "93 terms, ~23 used" when the list is longer than the model takes. */
+  function termCount(glossary) {
+    const label = `${glossary.terms} term${glossary.terms === 1 ? '' : 's'}`;
+    const budget = window.MeetScribeGlossaryBudget;
+    if (!budget) return label;
+    const { kept, total } = budget.forTexts([glossary.text || '']);
+    return kept < total ? `${label}, ~${kept} used` : label;
   }
 
   async function saveProjectGlossary() {

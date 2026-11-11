@@ -8,6 +8,7 @@ const { spawn } = require('child_process');
 const settingsStore = require('../core/settings.store');
 const audioArchive = require('./audio-archive.service');
 const corrections = require('./corrections');
+const glossaryBudget = require('../core/glossary-budget');
 const speedStats = require('./speed-stats.service');
 const transcriptRender = require('../core/transcript-render');
 const passOptions = require('../core/pass-options');
@@ -462,24 +463,11 @@ class OfflinePassService extends EventEmitter {
     }
     if (!raw.trim()) raw = String(settings.glossary || '');
 
-    const terms = [];
-    let contextPrompt = '';
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // "#" is a note for whoever edits the file and never reaches the model —
-      // including the instructions this file is created with. ">" is prose
-      // context that does reach it, as initial_prompt.
-      if (trimmed.startsWith('#')) continue;
-      if (trimmed.startsWith('>')) {
-        contextPrompt += (contextPrompt ? ' ' : '') + trimmed.replace(/^>+\s*/, '');
-        continue;
-      }
-      for (const term of trimmed.split(',')) {
-        const clean = term.trim();
-        if (clean) terms.push(clean);
-      }
-    }
+    // "#" is a note for whoever edits the file and never reaches the model —
+    // including the instructions this file is created with. ">" is prose
+    // context that does reach it, as initial_prompt. Project glossaries take
+    // turns, so each of them gets terms in before the budget runs out.
+    const { terms, contextPrompt } = glossaryBudget.hotwords(raw);
 
     // whisper_offline.py trims the hotwords to a token budget (whole terms, in
     // order); this cap only bounds what gets shipped to it.
@@ -487,7 +475,7 @@ class OfflinePassService extends EventEmitter {
     return {
       terms: capped,
       hotwords: capped.join(', '),
-      contextPrompt: contextPrompt.trim()
+      contextPrompt
     };
   }
 

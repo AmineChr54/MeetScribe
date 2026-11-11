@@ -25,6 +25,11 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Library-only mode: the library's server without the overlay. Start it from the "Open MeetScribe Library" shortcut MeetScribe puts in the transcript folder, or with the power button in the Library's header, which closes MeetScribe and keeps the Library; the same button (or starting MeetScribe) brings it back. A green dot shows the Library is answering. The browser page is now called MeetScribe Library.
 - Profiles in the app's Settings are one line of small chips in their own Profiles tab.
 - Select meetings in the Library with Ctrl+click, Shift+click (a range), Ctrl+A or the select-all button; Escape clears the selection.
+- The glossary pickers (Settings and a meeting's Glossary tab) say how many terms will reach the model ("About 18 of 93 terms reach the model"), and the Glossaries page shows it for each list that is too long.
+
+### Changed
+
+- Several project glossaries in one meeting take turns in the final pass's short hotword list, one term from each in turn. Before, the first glossary picked could use up the whole list and the others were never used.
 
 ### Fixed
 
