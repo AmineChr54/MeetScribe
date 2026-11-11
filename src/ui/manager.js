@@ -1567,6 +1567,17 @@
     }
   }
 
+  async function copySummarySkill() {
+    try {
+      const response = await fetch('/meeting-summary-skill.md', { credentials: 'same-origin' });
+      if (!response.ok) return toast('Could not load the skill');
+      await navigator.clipboard.writeText(await response.text());
+      toast('Copied the meeting-summary skill. Save it as SKILL.md in a skills folder.');
+    } catch (_) {
+      toast('Could not copy the skill');
+    }
+  }
+
   function exportMeeting(format) {
     if (!format) return;
     const markup = $('showMarkup').checked ? '1' : '0';
@@ -2475,6 +2486,7 @@
       $('correctionsSaved').textContent = 'Saved.';
     });
     $('globalCorrectionsBtn').addEventListener('click', globalCorrections);
+    $('copySkillBtn').addEventListener('click', copySummarySkill);
     document.querySelectorAll('.page-link').forEach((link) => link.addEventListener('click', () => showPage(link.dataset.page)));
     $('settingsSave').addEventListener('click', saveSettings);
     $('settingsForm').addEventListener('submit', (event) => {
