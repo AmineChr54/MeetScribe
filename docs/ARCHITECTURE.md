@@ -42,6 +42,21 @@ MeetScribe is an Electron app (main process + several renderer windows) that she
 - Settings from the browser go through `src/core/settings-schema.js`: a whitelist with types and limits that both validates every change server-side and describes the form. `whisperPython` and `transcriptRoot` are deliberately not in it (a tab must not choose what executable runs or where the library reads and deletes), nor are audio devices or the profile store. Profile edits use `profiles.update`, and changes then go through `main.js` `saveSettings`/`selectProfile`, exactly like the Settings window.
 - The player keeps one `<audio>` per stream aligned through each stream's `startedAt` in `audio/meta.json`.
 
+## Phone recorder
+
+- `phone-server.service.js` is a second server in the main process, separate from the manager because it must face the local network. It starts from the manager's **Phone** button (`POST /api/phone/start`), listens on `0.0.0.0` with HTTPS, and stops on **Turn off**, at quit, or after 10 minutes without a request. The phone page pings every 20 s, so a long recording keeps it open. In library-only mode the app does not quit while it runs.
+- It serves only `phone.html` + `src/ui/phone.{js,css}`, `POST /api/ping` (phone state for the manager's live status) and `POST /api/upload`. Nothing from the library can be read through it.
+- Security uses the same checks as the manager (`src/core/manager-http.js` `checkRequest`, with `hosts`, `scheme: 'https'` and its own cookie name):
+  - a per-start secret in the QR URL, swapped for a `Secure; HttpOnly; SameSite=Strict` cookie;
+  - `Host` must be one of this PC's LAN IPv4 addresses (`src/core/lan.js`, which skips WSL/Hyper-V/VM adapters);
+  - changes need the `https://` Origin.
+- Phones allow the microphone only on secure pages, so `src/core/self-signed-cert.js` builds an X.509 certificate with Node's crypto: EC P-256, SAN with the LAN IPs, serverAuth EKU, 397 days, as iOS requires. It is kept in `userData/phone-tls/` and reused while it covers the current addresses, so the phone warns once. The port is remembered there too (default 47613), because the page's origin includes it and the phone keeps unsent recordings per origin.
+- The QR code is drawn by `src/core/qr.js` (byte mode, level M, versions 1–10, no dependency) and served to the manager as `/api/phone/qr.svg`.
+- On the phone, `MediaRecorder` records webm/Opus (Android) or m4a/AAC (iPhone) at about 48 kbps, with echo cancellation and noise suppression off. Every 10 s chunk also goes to IndexedDB, and a recording is removed only after the upload is confirmed. A reload offers to send what was left. A screen wake lock keeps the phone awake.
+- Uploads go through `src/services/import-upload.js` `receiveImport`, the same path as the manager's Import: a new meeting in the Inbox with speaker label `Phone`, and the final pass is queued when Whisper is set up. The reply waits until the file is fsync'd and closed, because the phone deletes its copy on "ok".
+- Each upload carries the phone's id for the recording. `userData/phone-tls/received.json` remembers the last 100, so a resend after a lost answer is acknowledged without making a second meeting.
+- A running link is restarted (new token) only when the address in use is gone and no phone is recording or sending. Concurrent starts wait for each other. Unsent recordings live in the phone's IndexedDB for the page's origin (`https://<ip>:<port>`), so they can be sent again only while the PC keeps that address.
+
 ## Configuration and data
 
 - `src/core/config.js`: shipped defaults (not user-facing).
