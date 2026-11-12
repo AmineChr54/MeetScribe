@@ -36,6 +36,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
 - Pressing Enter in a library dialog (new folder, rename, tag) cancelled it instead of confirming.
 - The collapse arrows in Settings showed as "B8" / "BE".
+- Repetition loops ("so, so, so, …") in the fast final pass. Its batched decode never retried a looping segment, which happened most with a glossary. Looped segments are now decoded again one at a time without the glossary, and any loop left over is collapsed when the transcript is written.
 
 ## [1.4.0] - 2026-10-23
 
