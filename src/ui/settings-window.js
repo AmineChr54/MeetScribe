@@ -9,6 +9,8 @@
 // id -> how to read/write the DOM element
 const FIELDS = {
   transcriptRoot: 'text',
+  folderNamePrefix: 'text',
+  showTranscriptOnRecord: 'check',
   reorderWindowMs: 'number',
   autoStartRecording: 'check',
   autoUpdate: 'check',
@@ -18,6 +20,8 @@ const FIELDS = {
   systemSource: 'text',
   systemDeviceLabel: 'text',
   micDeviceLabel: 'text',
+  voiceLabels: 'check',
+  voiceMatchThreshold: 'number',
   labelSystem: 'text',
   labelMic: 'text',
   echoSuppress: 'check',
@@ -35,6 +39,7 @@ const FIELDS = {
 
   glossary: 'text',
   archiveAudio: 'check',
+  liveTranscription: 'check',
   archiveFormat: 'text',
   offlinePassEnabled: 'check',
   offlineModel: 'text',
@@ -52,10 +57,31 @@ const FIELDS = {
 // Settings that change what the model list shows.
 const MODEL_SETTINGS = ['whisperModel', 'offlineModel', 'offlineDiffModel', 'offlineMode', 'offlineCpuThreads'];
 
+const MODEL_GROUPS = [
+  ['live', 'For the live transcript'],
+  ['final', 'For the final pass']
+];
+
+// localStorage can be blocked or empty; the window must work without it.
+function recall(key, fallback = null) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function remember(key, value) {
+  try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (_) { /* not persisted */ }
+}
+
 function formatSize(bytes) {
   if (!bytes) return '';
   return bytes >= 1e9 ? (bytes / 1e9).toFixed(1) + ' GB' : Math.round(bytes / 1e6) + ' MB';
 }
+
+// Flags come from src/ui/flags.js (window.MeetScribeFlags).
 
 class SettingsWindow {
   constructor() {
@@ -65,18 +91,37 @@ class SettingsWindow {
     this.bindTabs();
     this.bindFields();
     this.bindActions();
+    this.bindVoice();
     this.bindEvents();
     this.load();
     this.loadModels();
+    this.loadProfiles();
+    this.refreshVoice();
   }
 
   bindTabs() {
+    const show = (tab) => {
+      document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
+      document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(`page-${tab.dataset.page}`).classList.add('active');
+    };
     document.querySelectorAll('.tab').forEach((tab) => {
       tab.addEventListener('click', () => {
-        document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-        document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(`page-${tab.dataset.page}`).classList.add('active');
+        show(tab);
+        remember('settings.tab', tab.dataset.page);
+      });
+    });
+    const last = document.querySelector('.tab[data-page="' + (recall('settings.tab') || '') + '"]');
+    if (last) show(last);
+
+    // Collapsible sections remember whether the user left them open.
+    const open = recall('settings.sections', {});
+    document.querySelectorAll('details.section').forEach((section) => {
+      const key = section.dataset.key;
+      if (key in open) section.open = Boolean(open[key]);
+      section.addEventListener('toggle', () => {
+        remember('settings.sections', { ...recall('settings.sections', {}), [key]: section.open });
       });
     });
   }
@@ -109,6 +154,10 @@ class SettingsWindow {
       window.electronAPI.openMeetingFolder();
     });
 
+    document.getElementById('openManager').addEventListener('click', () => {
+      window.electronAPI.openManager();
+    });
+
     document.getElementById('browsePython').addEventListener('click', async () => {
       const result = await window.electronAPI.pickPython();
       if (result.ok) {
@@ -116,6 +165,12 @@ class SettingsWindow {
         this.save({ whisperPython: result.path });
         this.refreshWhisperStatus();
       }
+    });
+
+    document.getElementById('resetProfile').addEventListener('click', async () => {
+      const result = await window.electronAPI.resetProfile(this.activeProfile);
+      if (result.settings) this.apply(result.settings);
+      if (result.profiles) this.renderProfiles(result);
     });
 
     document.getElementById('installWhisper').addEventListener('click', () => this.installWhisper());
@@ -183,10 +238,163 @@ class SettingsWindow {
     window.electronAPI.onInstallProgress((line) => this.appendLog(line));
   }
 
+  async refreshVoice() {
+    const status = document.getElementById('voiceStatus');
+    try {
+      const voice = await window.electronAPI.getVoiceStatus();
+      this.voice = voice;
+      const ready = voice.packageReady && voice.modelReady;
+      document.getElementById('voiceSetup').hidden = ready;
+      document.getElementById('voiceEnroll').hidden = !ready;
+      document.getElementById('voiceEnroll').textContent = voice.enrolled ? 'Record again' : 'Record my voice (25 s)';
+      document.getElementById('voiceDelete').hidden = !voice.enrolled;
+      if (!ready) status.textContent = 'Not set up yet.';
+      else if (!voice.enrolled) status.textContent = 'Ready. Record your voice to start labelling.';
+      else status.textContent = 'Your voice is saved' + (voice.enrolledAt ? ' (' + voice.enrolledAt.slice(0, 10) + ')' : '') + '.';
+    } catch (_) {
+      status.textContent = 'Status unknown.';
+    }
+  }
+
+  bindVoice() {
+    const status = document.getElementById('voiceStatus');
+    const busy = (button, on) => { button.disabled = on; };
+    window.electronAPI.onVoiceProgress((line) => { status.textContent = String(line); });
+
+    document.getElementById('voiceSetup').addEventListener('click', async (event) => {
+      busy(event.target, true);
+      status.textContent = 'Setting up…';
+      const result = await window.electronAPI.setupVoice();
+      busy(event.target, false);
+      if (!result.ok) status.textContent = 'Setup failed: ' + result.error;
+      else await this.refreshVoice();
+    });
+
+    document.getElementById('voiceEnroll').addEventListener('click', async (event) => {
+      busy(event.target, true);
+      const result = await window.electronAPI.enrollVoice(25);
+      busy(event.target, false);
+      if (result.ok) {
+        await this.refreshVoice();
+        status.textContent = 'Voice saved (' + result.clips + ' clips, consistency ' + result.consistency + ').';
+      } else {
+        status.textContent = result.error;
+      }
+    });
+
+    document.getElementById('voiceDelete').addEventListener('click', async (event) => {
+      const button = event.target;
+      // Two clicks, like deleting a model.
+      if (button.dataset.armed !== '1') {
+        button.dataset.armed = '1';
+        button.textContent = 'Confirm?';
+        setTimeout(() => { button.dataset.armed = ''; button.textContent = 'Delete my voice'; }, 4000);
+        return;
+      }
+      button.dataset.armed = '';
+      button.textContent = 'Delete my voice';
+      await window.electronAPI.deleteVoice();
+      this.refreshVoice();
+    });
+  }
+
+  async loadProfiles() {
+    try {
+      this.renderProfiles(await window.electronAPI.listProfiles());
+    } catch (_) { /* main process not ready; the next open retries */ }
+  }
+
+  renderProfiles({ active, profiles }) {
+    this.activeProfile = active;
+    const holder = document.getElementById('profileCards');
+    holder.textContent = '';
+    for (const profile of profiles) {
+      const card = document.createElement('button');
+      card.className = 'profile' + (profile.id === active ? ' active' : '');
+      card.title = profile.label + (profile.summary ? ' · ' + profile.summary : '');
+      const flag = document.createElement('span');
+      flag.className = 'flag';
+      flag.innerHTML = window.MeetScribeFlags.svg(profile.flag);
+      const name = document.createElement('span');
+      name.className = 'p-name';
+      name.textContent = profile.label;
+      const summary = document.createElement('span');
+      summary.className = 'p-sum';
+      summary.textContent = profile.summary;
+      card.append(flag, name, summary);
+      card.addEventListener('click', () => this.selectProfile(profile.id));
+      holder.appendChild(card);
+    }
+    const reset = document.getElementById('resetProfile');
+    const current = profiles.find((profile) => profile.id === active);
+    reset.hidden = !(current && current.kind === 'builtin' && current.edited);
+    document.getElementById('profileHint').textContent = !current || current.kind === 'none'
+      ? 'No profile: the default multilingual settings. Change anything; save it as a profile in the Library.'
+      : 'Changes you make are remembered by this profile.';
+  }
+
+  async selectProfile(id) {
+    const result = await window.electronAPI.selectProfile(id);
+    if (!result.ok) return;
+    this.apply(result.settings);
+    this.renderProfiles(result);
+    this.loadModels();
+  }
+
   async load() {
     const settings = await window.electronAPI.getSettings();
     this.apply(settings);
     this.refreshDevices();
+    this.loadGlossaries();
+  }
+
+  /** Project glossaries (made in the Library) as chips; ticked ones go into new meetings. */
+  async loadGlossaries() {
+    try {
+      this.glossaryList = await window.electronAPI.listGlossaries();
+    } catch (_) {
+      this.glossaryList = [];
+    }
+    this.glossaryNames = this.glossaryList.map((glossary) => glossary.name);
+    this.renderGlossarySet();
+  }
+
+  /** "About N of M terms reach the model" for the ticked glossaries. */
+  renderGlossaryFit() {
+    const line = document.getElementById('glossaryFit');
+    const budget = window.MeetScribeGlossaryBudget;
+    if (!line || !budget) return;
+    const chosen = new Set(((this.settings && this.settings.glossarySet) || []).map((name) => name.toLowerCase()));
+    const texts = (this.glossaryList || [])
+      .filter((glossary) => chosen.has(glossary.name.toLowerCase()))
+      .map((glossary) => glossary.text || '');
+    line.textContent = budget.describe(budget.forTexts(texts));
+  }
+
+  renderGlossarySet() {
+    const holder = document.getElementById('glossarySet');
+    if (!holder || !this.glossaryNames || !this.glossaryNames.length) return;
+    const chosen = new Set(((this.settings && this.settings.glossarySet) || []).map((name) => name.toLowerCase()));
+    holder.textContent = '';
+    for (const name of this.glossaryNames) {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = chosen.has(name.toLowerCase());
+      const label = document.createElement('label');
+      label.className = box.checked ? 'on' : '';
+      label.append(box, document.createTextNode(name));
+      box.addEventListener('change', () => {
+        label.className = box.checked ? 'on' : '';
+        const set = [...holder.querySelectorAll('label')]
+          .filter((item) => item.querySelector('input').checked)
+          .map((item) => item.textContent);
+        this.settings.glossarySet = set;
+        this.save({ glossarySet: set });
+        this.renderGlossaryFit();
+      });
+      holder.appendChild(label);
+    }
+    this.renderGlossaryFit();
   }
 
   readField(id) {
@@ -221,6 +429,7 @@ class SettingsWindow {
     this.updateEchoLabel();
     this.updateConfidenceLabel();
     this.applyCustomModel(settings);
+    this.renderGlossarySet();
     this.renderWhisperStatus(settings.whisper);
     this.populateDevices(settings.audioInputs || []);
 
@@ -299,6 +508,8 @@ class SettingsWindow {
     }
     if (!status.configured) {
       element.textContent = 'Not set up — click "Install / Repair Whisper".';
+      const install = document.querySelector('details.section[data-key="install"]');
+      if (install) install.open = true; // the one thing to do next must not be hidden
       return;
     }
     const parts = ['Ready'];
@@ -357,7 +568,40 @@ class SettingsWindow {
   renderModels(rows) {
     const list = document.getElementById('modelList');
     list.textContent = '';
-    for (const row of rows) list.appendChild(this.renderModel(row));
+
+    // What is on disk comes first, by purpose; everything else hides under one fold.
+    const have = rows.filter((row) => row.downloaded);
+    const rest = rows.filter((row) => !row.downloaded);
+    for (const [category, title] of MODEL_GROUPS) {
+      const group = have.filter((row) => (row.category === 'live' ? 'live' : 'final') === category);
+      if (!group.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'model-group';
+      heading.textContent = title;
+      list.appendChild(heading);
+      for (const row of group) list.appendChild(this.renderModel(row));
+    }
+    if (!have.length) {
+      const none = document.createElement('div');
+      none.className = 'hint';
+      none.textContent = 'No models downloaded yet.';
+      list.appendChild(none);
+    }
+
+    if (rest.length) {
+      const more = document.createElement('details');
+      more.className = 'model-more';
+      more.open = Boolean(this.availableOpen) || rest.some((row) => row.downloading);
+      more.addEventListener('toggle', () => { this.availableOpen = more.open; });
+      const summary = document.createElement('summary');
+      summary.textContent = 'Available to download (' + rest.length + ')';
+      more.appendChild(summary);
+      const body = document.createElement('div');
+      body.className = 'models';
+      for (const row of rest) body.appendChild(this.renderModel(row));
+      more.appendChild(body);
+      list.appendChild(more);
+    }
     this.markDownloaded(rows);
   }
 
@@ -447,6 +691,8 @@ class SettingsWindow {
     await window.electronAPI.saveSettings(patch);
     // "In use" tags and the time estimates depend on these.
     if (MODEL_SETTINGS.some((key) => key in patch)) this.loadModels();
+    // The active profile just absorbed this edit (shows its "Reset" link).
+    if (this.activeProfile) this.loadProfiles();
     const saved = document.getElementById('saved');
     saved.classList.add('show');
     clearTimeout(this.savedTimer);

@@ -8,7 +8,11 @@ const { spawn } = require('child_process');
 const settingsStore = require('../core/settings.store');
 const audioArchive = require('./audio-archive.service');
 const corrections = require('./corrections');
+const glossaryBudget = require('../core/glossary-budget');
+const repeats = require('../core/repeats');
 const speedStats = require('./speed-stats.service');
+const transcriptRender = require('../core/transcript-render');
+const passOptions = require('../core/pass-options');
 const logger = require('../core/logger').createServiceLogger('FINAL-PASS');
 
 // Nothing on stdout for this long means the child is wedged, not slow: it
@@ -22,16 +26,10 @@ const DEFAULT_CPU_THREADS = Math.max(4, Math.floor(os.availableParallelism() / 2
 // In userData: folders whose final pass was queued or running at quit.
 const PENDING_FILE = 'pending-final-passes.json';
 
-// Consecutive segments from one speaker closer than this become one paragraph.
-const BLOCK_GAP_MS = 8000;
-// A new "## HH:MM" heading is emitted once the clock has moved on this far.
-const CHAPTER_INTERVAL_MS = 5 * 60 * 1000;
 // Echo detection reuses the live rules, with a wider window: offline there is
 // no race between the two pipelines, so the comparison can be generous.
 const ECHO_WINDOW_MS = 6000;
 const MIN_ECHO_TOKENS = 4;
-// How many uncertain spans to list in the index at the end of the transcript.
-const UNCERTAIN_INDEX_LIMIT = 40;
 // Longest disagreement worth marking inline. Two models that split a sentence
 // differently produce one enormous "replace" run that buries the readable text
 // inside markup without locating anything. A genuine mishearing is a word or
@@ -49,10 +47,6 @@ const pad = (value) => String(value).padStart(2, '0');
 const clockOf = (ms) => {
   const date = new Date(ms);
   return pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
-};
-const hhmmOf = (ms) => {
-  const date = new Date(ms);
-  return pad(date.getHours()) + ':' + pad(date.getMinutes());
 };
 
 /**
@@ -89,7 +83,35 @@ class OfflinePassService extends EventEmitter {
   }
 
   getStatus() {
-    return { running: this.running, folder: this.currentFolder, queued: this.queue.map((job) => job.folder) };
+    return {
+      running: this.running,
+      folder: this.currentFolder,
+      pct: this.running ? this.lastPct : 0,
+      overrides: this.currentJob ? this.currentJob.overrides || {} : {},
+      queued: this.queue.map((job) => job.folder),
+      jobs: this.queue.map((job) => ({ folder: job.folder, overrides: job.overrides || {} }))
+    };
+  }
+
+  /** Take a waiting pass out of the queue; its caller hears "cancelled". */
+  dequeue(folder) {
+    const index = this.queue.findIndex((job) => job.folder === folder);
+    if (index < 0) return false;
+    const [job] = this.queue.splice(index, 1);
+    this._persist();
+    job.resolve({ ok: false, cancelled: true, folder, error: 'removed from the queue' });
+    this.emit('queued', { folder, waiting: this.queue.length, pct: this.lastPct });
+    return true;
+  }
+
+  /** Move a waiting pass earlier (negative) or later in the queue. */
+  reorder(folder, delta) {
+    const index = this.queue.findIndex((job) => job.folder === folder);
+    if (index < 0) return false;
+    this.queue = passOptions.moveItem(this.queue, index, Number(delta) || 0);
+    this._persist();
+    this.emit('queued', { folder, waiting: this.queue.length, pct: this.lastPct });
+    return true;
   }
 
   cancel() {
@@ -156,16 +178,17 @@ class OfflinePassService extends EventEmitter {
   }
 
   /**
-   * Folders whose pass was queued or running when the app last quit. Taking
-   * them clears the file; re-queueing them writes back the ones still valid.
+   * Passes that were queued or running when the app last quit, as
+   * { folder, overrides }. Taking them clears the file; re-queueing them
+   * writes back the ones still valid.
    */
   takePending() {
     try {
       const file = settingsStore.userDataFile(PENDING_FILE);
       if (!fs.existsSync(file)) return [];
-      const folders = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const entries = JSON.parse(fs.readFileSync(file, 'utf8'));
       fs.rmSync(file, { force: true });
-      return Array.isArray(folders) ? folders.filter((folder) => typeof folder === 'string') : [];
+      return Array.isArray(entries) ? entries.map(passOptions.normalizePending).filter(Boolean) : [];
     } catch (error) {
       logger.warn('Could not read pending final passes', { error: error.message });
       return [];
@@ -173,7 +196,9 @@ class OfflinePassService extends EventEmitter {
   }
 
   _persist() {
-    const folders = [this.currentJob, ...this.queue].filter(Boolean).map((job) => job.folder);
+    // A bare folder when the pass uses the settings, so older builds can still read it.
+    const folders = [this.currentJob, ...this.queue].filter(Boolean)
+      .map((job) => (job.overrides && Object.keys(job.overrides).length ? { folder: job.folder, overrides: job.overrides } : job.folder));
     try {
       const file = settingsStore.userDataFile(PENDING_FILE);
       if (folders.length === 0) {
@@ -192,8 +217,9 @@ class OfflinePassService extends EventEmitter {
    * @param {object} options.meta      audio/meta.json (streams, start times)
    * @param {array}  options.events    screenshots and markers from the meeting
    * @param {object} options.paths     { python, script, modelDir, env }
+   * @param {object} [options.overrides] settings for this pass only (pass-options.js keys)
    */
-  async run({ folder, meta, events = [], paths }) {
+  async run({ folder, meta, events = [], paths, overrides = {} }) {
     if (this.running) throw new Error('A final pass is already running');
     if (!meta || !Array.isArray(meta.streams) || meta.streams.length === 0) {
       throw new Error('This meeting has no archived audio to re-transcribe');
@@ -209,7 +235,8 @@ class OfflinePassService extends EventEmitter {
     this.cancelled = false;
     this.lastPct = 0;
     this.currentFolder = folder;
-    const settings = settingsStore.all();
+    // A re-run from the manager may pick another model or language for this pass only.
+    const settings = { ...settingsStore.all(), ...passOptions.cleanOverrides(overrides) };
     const glossary = this._loadGlossary(folder, settings);
     const matcher = corrections.buildMatcher(
       corrections.loadRules(folder, settingsStore.userDataFile(corrections.FILE_NAME))
@@ -276,8 +303,9 @@ class OfflinePassService extends EventEmitter {
 
     // Repair anything an older build (or a crash) left malformed before handing
     // it to FFmpeg, which reacts to a bad header by dying rather than complaining.
+    // Imported recordings are the user's own files, never the recorder's WAVs.
     for (const entry of meta.streams) {
-      if (/\.wav$/i.test(entry.path) && fs.existsSync(entry.path)) {
+      if (!meta.imported && /\.wav$/i.test(entry.path) && fs.existsSync(entry.path)) {
         audioArchive.repairWav(entry.path);
       }
     }
@@ -436,24 +464,11 @@ class OfflinePassService extends EventEmitter {
     }
     if (!raw.trim()) raw = String(settings.glossary || '');
 
-    const terms = [];
-    let contextPrompt = '';
-    for (const line of raw.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      // "#" is a note for whoever edits the file and never reaches the model —
-      // including the instructions this file is created with. ">" is prose
-      // context that does reach it, as initial_prompt.
-      if (trimmed.startsWith('#')) continue;
-      if (trimmed.startsWith('>')) {
-        contextPrompt += (contextPrompt ? ' ' : '') + trimmed.replace(/^>+\s*/, '');
-        continue;
-      }
-      for (const term of trimmed.split(',')) {
-        const clean = term.trim();
-        if (clean) terms.push(clean);
-      }
-    }
+    // "#" is a note for whoever edits the file and never reaches the model —
+    // including the instructions this file is created with. ">" is prose
+    // context that does reach it, as initial_prompt. Project glossaries take
+    // turns, so each of them gets terms in before the budget runs out.
+    const { terms, contextPrompt } = glossaryBudget.hotwords(raw);
 
     // whisper_offline.py trims the hotwords to a token budget (whole terms, in
     // order); this cap only bounds what gets shipped to it.
@@ -461,7 +476,7 @@ class OfflinePassService extends EventEmitter {
     return {
       terms: capped,
       hotwords: capped.join(', '),
-      contextPrompt: contextPrompt.trim()
+      contextPrompt
     };
   }
 
@@ -487,9 +502,10 @@ class OfflinePassService extends EventEmitter {
           label: stream.label,
           startedAt,
           endedAt,
-          text: segment.text,
+          // Loops the final pass could not decode again are collapsed here.
+          text: repeats.collapseText(segment.text),
           avgLogprob: segment.avg_logprob,
-          words: segment.words || [],
+          words: repeats.collapseWords(segment.words || []),
           diffWords: diffStream ? this._diffWordsInRange(diffStream, segment.start, segment.end) : []
         });
       }
@@ -550,6 +566,8 @@ class OfflinePassService extends EventEmitter {
         language: result.language,
         glossary: glossary.terms
       },
+      // Enough to rebuild the Markdown from this file alone (browser manager edits).
+      render: transcriptRender.renderInfo({ meta, result, glossary, threshold, glossaryCopies, hasCorrections: Boolean(matcher) }),
       entries: entries.map((entry) => ({
         kind: entry.kind,
         label: entry.label,
@@ -781,133 +799,8 @@ class OfflinePassService extends EventEmitter {
     return pieces;
   }
 
-  _buildMarkdown({
-    meta, result, entries, settings, glossary, uncertain, threshold, appliedFixes, glossaryCopies, hasCorrections
-  }) {
-    const started = new Date(meta.startedAt);
-    const stopped = new Date(meta.stoppedAt || meta.startedAt);
-    const out = [];
-
-    out.push('# Meeting ' + started.toLocaleDateString() + ' · ' + hhmmOf(meta.startedAt) + '–' + hhmmOf(stopped.getTime()));
-    out.push('');
-    const speakers = meta.streams
-      .map((entry) => entry.label + ' (' + (entry.stream === 'mic' ? 'microphone' : 'system audio') + ')')
-      .join(' · ');
-    out.push('- **Speakers:** ' + speakers);
-    out.push('- **ASR:** ' + result.model + ' · ' + (result.mode || 'quality') + ' · beam ' + result.beamSize + ' · ' +
-      (result.language || 'auto') + ' · ' + result.device + '/' + result.computeType);
-    if (result.diffModel) out.push('- **Cross-checked against:** ' + result.diffModel);
-    if (glossary.terms.length > 0) {
-      const kept = Number.isInteger(result.glossaryKept) ? result.glossaryKept : glossary.terms.length;
-      out.push('- **Glossary:** ' + glossary.terms.slice(0, kept).join(', ') +
-        (kept < glossary.terms.length ? ' (first ' + kept + ' of ' + glossary.terms.length + ' terms used)' : ''));
-    }
-    if (glossary.contextPrompt) out.push('- **Context given to the model:** ' + glossary.contextPrompt);
-    const dropped = Array.from(new Set(result.glossaryDropped || []));
-    if (dropped.length > 0) {
-      const labels = dropped.map((id) => (meta.streams.find((entry) => entry.stream === id) || {}).label || id);
-      out.push('- **Glossary was not applied** to ' + labels.join(', ') + ': decoding failed with it');
-    }
-    if (glossaryCopies > 0) {
-      out.push('- **Dropped:** ' + glossaryCopies + ' line' + (glossaryCopies === 1 ? '' : 's') +
-        ' that only repeated the glossary');
-    }
-    out.push('- **Markup:** `~wort~` = the model was unsure (p < ' + threshold + ')' +
-      (result.diffModel ? ' · `<a|b>` = the two models disagreed' : '') +
-      (hasCorrections ? ' · `{wort}` = replaced from the corrections list' : ''));
-    if (appliedFixes.length > 0) {
-      out.push('- **Corrections applied:** ' +
-        appliedFixes.map((fix) => fix.heard + ' → ' + fix.correct + ' (' + fix.count + '×)').join(', '));
-    }
-    out.push('');
-    out.push('> Produced by the final pass over the archived audio, with context across the whole');
-    out.push('> meeting and a glossary. The live `transcript.txt` in this folder is the low-latency');
-    out.push('> preview and will differ — where the two disagree, this file is the better one.');
-    out.push('');
-    out.push('---');
-    out.push('');
-
-    let lastChapter = 0;
-    let lastLabel = null;
-    let lastEndedAt = 0;
-    let paragraph = [];
-
-    const flushParagraph = () => {
-      if (paragraph.length === 0) return;
-      out.push('**' + lastLabel + ':** ' + paragraph.join(' '));
-      out.push('');
-      paragraph = [];
-    };
-
-    for (const entry of entries) {
-      if (entry.startedAt - lastChapter >= CHAPTER_INTERVAL_MS) {
-        flushParagraph();
-        lastLabel = null;
-        lastChapter = entry.startedAt;
-        out.push('## ' + hhmmOf(entry.startedAt));
-        out.push('');
-      }
-
-      if (entry.kind === 'screenshot') {
-        flushParagraph();
-        lastLabel = null;
-        out.push('*[' + clockOf(entry.startedAt) + '] screenshot: `' + entry.text + '`*');
-        out.push('');
-        continue;
-      }
-      if (entry.kind === 'marker') {
-        flushParagraph();
-        lastLabel = null;
-        out.push('*[' + clockOf(entry.startedAt) + '] mark' + (entry.text ? ': ' + entry.text : '') + '*');
-        out.push('');
-        continue;
-      }
-
-      const sameSpeaker = entry.label === lastLabel;
-      const closeEnough = entry.startedAt - lastEndedAt <= BLOCK_GAP_MS;
-      if (!sameSpeaker || !closeEnough) {
-        flushParagraph();
-        lastLabel = entry.label;
-      }
-      paragraph.push(entry.rendered);
-      lastEndedAt = entry.endedAt;
-    }
-    flushParagraph();
-
-    if (uncertain.length > 0) {
-      out.push('---');
-      out.push('');
-      out.push('## Uncertain spans');
-      out.push('');
-      out.push('The ' + Math.min(uncertain.length, UNCERTAIN_INDEX_LIMIT) + ' least confident places in this transcript, worst first.');
-      out.push('Start here when correcting; the rest of the text is comparatively safe.');
-      out.push('');
-      out.push('| Time | Speaker | Read as | Alternative / confidence |');
-      out.push('|---|---|---|---|');
-
-      const ranked = uncertain
-        .slice()
-        .sort((a, b) => {
-          const scoreA = a.kind === 'model-disagreement' ? -1 : a.probability;
-          const scoreB = b.kind === 'model-disagreement' ? -1 : b.probability;
-          return scoreA - scoreB;
-        })
-        .slice(0, UNCERTAIN_INDEX_LIMIT);
-
-      for (const item of ranked) {
-        const escape = (value) => String(value || '').replace(/\|/g, '\\|');
-        if (item.kind === 'model-disagreement') {
-          out.push('| ' + item.at + ' | ' + escape(item.label) + ' | ' + escape(item.primary) +
-            ' | second model heard "' + escape(item.secondary) + '" |');
-        } else {
-          out.push('| ' + item.at + ' | ' + escape(item.label) + ' | ' + escape(item.word) +
-            ' | p = ' + item.probability.toFixed(2) + ' |');
-        }
-      }
-      out.push('');
-    }
-
-    return out.join('\r\n');
+  _buildMarkdown(args) {
+    return transcriptRender.buildMarkdown(args);
   }
 
   _progress(state, pct, message) {

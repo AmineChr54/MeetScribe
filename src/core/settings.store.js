@@ -38,6 +38,7 @@ class SettingsStore {
       echoSimilarity: config.get('audio.echoSimilarity'),
 
       glossary: config.get('whisper.glossary'),
+      glossarySet: config.get('whisper.glossarySet'),
 
       archiveAudio: config.get('offline.archiveAudio'),
       archiveFormat: config.get('offline.archiveFormat'),
@@ -58,8 +59,11 @@ class SettingsStore {
       whisperCpuThreads: config.get('whisper.cpuThreads'),
       whisperBeamSize: config.get('whisper.beamSize'),
       whisperWorkerCount: config.get('whisper.workerCount'),
+      voiceLabels: config.get('whisper.voiceLabels'),
+      voiceMatchThreshold: config.get('whisper.voiceMatchThreshold'),
       whisperIdleUnloadMs: config.get('whisper.idleUnloadMs'),
 
+      liveTranscription: config.get('whisper.liveEnabled'),
       vadEnabled: config.get('whisper.vadEnabled'),
       silenceHangoverMs: config.get('whisper.silenceHangoverMs'),
       minUtteranceMs: config.get('whisper.minUtteranceMs'),
@@ -68,6 +72,15 @@ class SettingsStore {
       vadEnergyFloor: config.get('whisper.vadEnergyFloor'),
 
       appIcon: 'terminal',
+
+      // Profiles (src/core/profiles.js): which one is active, and each
+      // profile's stored edits.
+      activeProfile: '',
+      profiles: {},
+      // The user's own profiles: [{ id, label, flag, values }].
+      myProfiles: [],
+      showTranscriptOnRecord: true,
+      folderNamePrefix: '',
       windowGap: config.get('ui.windowGap'),
       transcriptFontSize: config.get('ui.transcriptFontSize'),
       overlayOpacity: config.get('ui.overlayOpacity'),

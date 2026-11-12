@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFinalPassStatus: () => ipcRenderer.invoke('meeting:final-status'),
   rerunFinalPass: (folder) => ipcRenderer.invoke('meeting:rerun-final', folder),
   pickAndRerunFinalPass: () => ipcRenderer.invoke('meeting:pick-and-rerun'),
+  openManager: () => ipcRenderer.invoke('manager:open'),
+  listGlossaries: () => ipcRenderer.invoke('glossaries:list'),
 
   // ── Audio engine (called from the hidden capture renderer) ──
   sendAudioChunk: (streamId, buffer) => ipcRenderer.send('audio-chunk', { streamId, buffer }),
@@ -36,6 +38,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Settings ──
   getSettings: () => ipcRenderer.invoke('settings:get'),
   saveSettings: (settings) => ipcRenderer.invoke('settings:save', settings),
+  getVoiceStatus: () => ipcRenderer.invoke('voice:status'),
+  setupVoice: () => ipcRenderer.invoke('voice:setup'),
+  enrollVoice: (seconds) => ipcRenderer.invoke('voice:enroll', seconds),
+  deleteVoice: () => ipcRenderer.invoke('voice:delete'),
+  onVoiceProgress: (cb) => on('voice-progress', cb),
+  listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  selectProfile: (id) => ipcRenderer.invoke('profiles:select', id),
+  resetProfile: (id) => ipcRenderer.invoke('profiles:reset', id),
   pickFolder: () => ipcRenderer.invoke('settings:pick-folder'),
   pickPython: () => ipcRenderer.invoke('settings:pick-python'),
   showSettings: () => ipcRenderer.invoke('show-settings'),

@@ -57,6 +57,12 @@ const meetingService = require("./src/services/meeting.service");
 const audioArchive = require("./src/services/audio-archive.service");
 const offlinePass = require("./src/services/offline-pass.service");
 const modelStore = require("./src/services/model-store.service");
+const profiles = require("./src/core/profiles");
+const libraryService = require("./src/services/library.service");
+const managerServer = require("./src/services/manager-server.service");
+const phoneServer = require("./src/services/phone-server.service");
+const libraryEdit = require("./src/services/library-edit.service");
+const voiceService = require("./src/services/voice.service");
 const speedStats = require("./src/services/speed-stats.service");
 const windowManager = require("./src/managers/window.manager");
 
@@ -66,6 +72,9 @@ class ApplicationController {
     this.starting = false;
     this.appIcon = "terminal";
     this.audioDevices = { inputs: [] };
+    // Started from the library shortcut: the manager only, no overlay.
+    this.libraryOnly = process.argv.includes("--library");
+    this.overlayCreated = false;
 
     this.setupStealth();
     this.setupEventHandlers();
@@ -98,8 +107,18 @@ class ApplicationController {
     this.setupServiceEventHandlers();
   }
 
-  handleSecondInstance() {
+  handleSecondInstance(argv = []) {
     logger.info("Second instance launch detected; focusing existing windows");
+    // The library shortcut while MeetScribe runs: open the manager, nothing else.
+    if (argv.includes("--library")) {
+      app.whenReady().then(() => this.openManager());
+      return;
+    }
+    // MeetScribe started normally while only the library runs: bring the overlay up.
+    if (this.libraryOnly) {
+      app.whenReady().then(() => this.leaveLibraryOnly());
+      return;
+    }
 
     const focusExistingWindows = () => {
       try {
@@ -145,21 +164,19 @@ class ApplicationController {
     try {
       this.setupPermissions();
       this.setupDisplayMediaHandler();
-
-      // Small delay so desktop/display detection is accurate.
-      await new Promise((resolve) => setTimeout(resolve, 200));
-
-      await windowManager.initializeWindows({ showMainWindow: true });
-      windowManager.setWindowGap(Number(settingsStore.get("windowGap")) || 10);
-      this.setupGlobalShortcuts();
-      this.updateAppIcon(this.appIcon);
-
       transcriptionService.configure();
+      this.ensureLibraryShortcut();
 
-      if (settingsStore.get("startClickThrough")) {
-        windowManager.setInteractive(false);
+      if (this.libraryOnly) {
+        // Started from the library shortcut: no overlay, just the manager.
+        this.starting = false;
+        this.isReady = true;
+        logger.info("Started in library-only mode");
+        await this.openManager();
+        return;
       }
 
+      await this.startOverlay();
       this.starting = false;
       this.isReady = true;
 
@@ -175,6 +192,110 @@ class ApplicationController {
       this.starting = false;
       logger.error("Application initialization failed", { error: error.message });
       app.quit();
+    }
+  }
+
+  /** The overlay windows and shortcuts; created once, then only shown and hidden. */
+  async startOverlay() {
+    if (this.overlayCreated) {
+      windowManager.showAllWindows();
+      this.setupGlobalShortcuts();
+      return;
+    }
+    // Small delay so desktop/display detection is accurate.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await windowManager.initializeWindows({ showMainWindow: true });
+    this.overlayCreated = true;
+    windowManager.setWindowGap(Number(settingsStore.get("windowGap")) || 10);
+    this.setupGlobalShortcuts();
+    this.updateAppIcon(this.appIcon);
+    if (settingsStore.get("startClickThrough")) {
+      windowManager.setInteractive(false);
+    }
+  }
+
+  // ── Library-only mode ──
+  //
+  // MeetScribe without its overlay: only the browser manager's local server.
+  // Entered by starting with --library (the shortcut in the transcript folder)
+  // or with the power button in the library's header; left by starting
+  // MeetScribe normally or with the same button in the library. It quits by itself once
+  // the manager has been closed for a while and no final pass is running.
+
+  /** Asked for from the library page itself, which stays open. */
+  enterLibraryOnly() {
+    if (transcriptionService.isRecording) return { ok: false, error: "Stop the recording first" };
+    if (this.libraryOnly) return { ok: true };
+    this.libraryOnly = true;
+    globalShortcut.unregisterAll();
+    windowManager.hideAllWindows();
+    logger.info("Switched to library-only mode");
+    managerServer.broadcast("status", { mode: "library" });
+    return { ok: true };
+  }
+
+  async leaveLibraryOnly() {
+    if (!this.libraryOnly) {
+      windowManager.showAllWindows();
+      return {};
+    }
+    this.libraryOnly = false;
+    logger.info("Leaving library-only mode");
+    await this.startOverlay();
+    managerServer.broadcast("status", { mode: "app" });
+    return {};
+  }
+
+  onManagerStopped() {
+    if (!this.libraryOnly) return;
+    // A phone may still be recording; this runs again when its link closes.
+    if (managerServer.isRunning() || phoneServer.isRunning()) return;
+    const pass = offlinePass.getStatus();
+    if (pass.folder || (pass.queued || []).length) {
+      // Finish the passes first; check again when the queue moves.
+      if (!this.quitAfterPass) {
+        this.quitAfterPass = () => {
+          if (managerServer.isRunning()) return;
+          const next = offlinePass.getStatus();
+          if (!next.folder && !(next.queued || []).length) this.onManagerStopped();
+        };
+        for (const event of ["done", "failed", "cancelled"]) offlinePass.on(event, () => setTimeout(() => this.quitAfterPass(), 500));
+      }
+      return;
+    }
+    logger.info("Library closed; quitting library-only mode");
+    this.quit();
+  }
+
+  /**
+   * "Open MeetScribe Library" in the transcript folder: starts this app with
+   * --library. Windows only (a .lnk); put back if it was deleted.
+   */
+  ensureLibraryShortcut() {
+    if (process.platform !== "win32") return;
+    try {
+      const root = settingsStore.get("transcriptRoot");
+      if (!root) return;
+      fs.mkdirSync(root, { recursive: true });
+      const link = path.join(root, "Open MeetScribe Library.lnk");
+      // Packaged: the app's own exe. From source: electron.exe plus the app folder.
+      const args = app.isPackaged ? "--library" : `"${app.getAppPath()}" --library`;
+      const icon = path.join(__dirname, "assets", "brand", "icon.ico").replace("app.asar", "app.asar.unpacked");
+      const options = {
+        target: process.execPath,
+        args,
+        cwd: path.dirname(process.execPath),
+        description: "Browse, play and edit your meetings without the MeetScribe overlay",
+        icon: fs.existsSync(icon) ? icon : process.execPath,
+        iconIndex: 0,
+      };
+      let current = null;
+      try { current = shell.readShortcutLink(link); } catch (_) { /* missing */ }
+      if (current && current.target === options.target && current.args === options.args) return;
+      shell.writeShortcutLink(link, current ? "replace" : "create", options);
+      logger.info("Library shortcut written to the transcript folder");
+    } catch (error) {
+      logger.warn("Could not write the library shortcut", { error: error.message });
     }
   }
 
@@ -283,6 +404,88 @@ class ApplicationController {
   }
 
   setupServiceEventHandlers() {
+    // The browser manager marks meetings that are recording or being
+    // transcribed, and refuses to touch them.
+    libraryService.setBusyProvider(() => {
+      const pass = offlinePass.getStatus();
+      return {
+        recordingFolder: transcriptionService.isRecording ? meetingService.folder : null,
+        runningFolder: pass.folder,
+        queuedFolders: pass.queued,
+      };
+    });
+    // Deletes from the manager go to the Recycle Bin, never straight off the disk.
+    libraryEdit.setTrash((target) => shell.trashItem(target));
+    // Fire and forget: progress reaches the page as "final-pass" events.
+    const rerunInBackground = (folder, overrides) => {
+      this.rerunFinalPass(folder, overrides).then((result) => {
+        if (!result.ok && !result.cancelled) {
+          managerServer.broadcast("final-pass", { state: "failed", folder, message: `Final pass failed: ${result.error}` });
+        }
+      });
+    };
+    managerServer.setApi({
+      status: () => ({
+        recording: transcriptionService.isRecording,
+        folder: meetingService.folder,
+        finalPass: offlinePass.getStatus(),
+        whisperReady: transcriptionService.isAvailable(),
+        // "library": started with --library, no overlay windows.
+        mode: this.libraryOnly ? "library" : "app",
+        version: config.get("app.version"),
+      }),
+      models: () => this.listModels(),
+      queue: () => offlinePass.getStatus(),
+      rerun: rerunInBackground,
+      cancelRunning: () => offlinePass.cancel(),
+      dequeue: (folder) => offlinePass.dequeue(folder),
+      reorder: (folder, delta) => offlinePass.reorder(folder, delta),
+      settings: () => settingsStore.all(),
+      saveSettings: (patch) => this.saveSettings(patch),
+      profiles: () => this.listProfiles(),
+      selectProfile: (id) => this.selectProfile(id),
+      resetProfile: (id) => this.resetProfile(id),
+      updateProfile: (id, values, meta) => this.updateProfile(id, values, meta),
+      createProfile: (options) => this.createProfile(options),
+      deleteProfile: (id) => this.deleteProfile(id),
+      downloadModel: (id, options) => this.downloadModel(id, options),
+      deleteModel: (id) => this.deleteModel(id),
+      searchModels: (query) => modelStore.searchHub(query),
+      openApp: () => this.leaveLibraryOnly(),
+      libraryOnly: () => this.enterLibraryOnly(),
+      phoneStatus: () => phoneServer.status(),
+      phoneStart: (address) => phoneServer.start(address),
+      phoneStop: () => phoneServer.stop(),
+      phoneQr: () => phoneServer.qrSvg(),
+    });
+    // Library-only mode ends when the manager has been closed for a while.
+    managerServer.on("stopped", () => this.onManagerStopped());
+
+    // Recordings made on a phone arrive as imports and go to the final pass.
+    phoneServer.setApi({
+      whisperReady: () => transcriptionService.isAvailable(),
+      rerun: rerunInBackground,
+    });
+    phoneServer.on("status", (status) => managerServer.broadcast("phone", status));
+    phoneServer.on("received", () => managerServer.broadcast("library", { reason: "phone" }));
+    phoneServer.on("stopped", () => this.onManagerStopped());
+    // Everything the overlay hears about the final pass, the manager hears too.
+    for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
+      offlinePass.on(event, (payload) => {
+        managerServer.broadcast("final-pass", {
+          state: event === "progress" ? payload.state : event,
+          ...payload,
+          message:
+            event === "done" ? "Final transcript ready"
+              : event === "failed" ? `Final pass failed: ${payload.error}`
+                : event === "cancelled" ? "Final pass cancelled"
+                  : event === "queued" ? `Final pass queued (${payload.waiting} waiting)`
+                    : payload.message,
+        });
+      });
+    }
+    modelStore.on("progress", (payload) => managerServer.broadcast("model-progress", payload));
+
     // Lets the writer hold an instantaneous event (screenshot, marker) until
     // speech that started earlier has come back from Whisper.
     meetingService.setPendingProvider(() => transcriptionService.oldestPendingStartedAt());
@@ -361,12 +564,38 @@ class ApplicationController {
   async startRecording() {
     if (transcriptionService.isRecording) return meetingService.getStatus();
 
-    if (!transcriptionService.isAvailable()) {
+    // Enrollment owns the microphone capture; starting a meeting now would
+    // replace it, and the end of enrollment would then stop the meeting's audio.
+    if (voiceService.isEnrolling()) {
+      const message = "Voice enrollment is still recording. Start the meeting when it has finished.";
+      windowManager.broadcastToAllWindows("transcription-error", { message });
+      logger.warn(message);
+      return null;
+    }
+
+    if (transcriptionService.isLiveEnabled() && !transcriptionService.isAvailable()) {
       const message =
         'Whisper is not set up yet. Open Settings (Ctrl+,) → Transcription → "Install / Repair Whisper".';
       windowManager.broadcastToAllWindows("transcription-error", { message });
       logger.warn(message);
       return null;
+    }
+
+    // With the live transcript off the final pass is the only transcript. If it
+    // cannot run, say so now rather than leave a meeting with audio and no text.
+    if (!transcriptionService.isLiveEnabled()) {
+      const reason = !transcriptionService.isAvailable()
+        ? "Whisper is not set up"
+        : !settingsStore.get("offlinePassEnabled")
+          ? "the final pass is turned off"
+          : "";
+      if (reason) {
+        const message =
+          `The live transcript is off and ${reason}, so this meeting will only be recorded as audio. ` +
+          "Re-run the final pass later to get a transcript.";
+        windowManager.broadcastToAllWindows("transcription-error", { message });
+        logger.warn(message);
+      }
     }
 
     let status;
@@ -382,7 +611,8 @@ class ApplicationController {
     // Start archiving before capture, so the recording covers the meeting from
     // its first chunk. A failure here must not stop the meeting — a live
     // transcript with no archive still beats no transcript at all.
-    if (settingsStore.get("archiveAudio")) {
+    // With the live transcript off the archive is the only record, so it is kept regardless.
+    if (settingsStore.get("archiveAudio") || !transcriptionService.isLiveEnabled()) {
       try {
         audioArchive.start(status.folder, {
           system: settingsStore.get("labelSystem") || "Them",
@@ -398,8 +628,11 @@ class ApplicationController {
     transcriptionService.start();
     await this.startAudioCapture();
 
-    windowManager.handleRecordingStarted();
+    windowManager.handleRecordingStarted({
+      showTranscript: settingsStore.get("showTranscriptOnRecord") !== false,
+    });
     windowManager.broadcastToAllWindows("meeting-started", status);
+    managerServer.broadcast("library", { reason: "meeting-started" });
     logger.info("Recording started", { folder: status.folder });
     return status;
   }
@@ -418,6 +651,7 @@ class ApplicationController {
 
     windowManager.handleRecordingStopped();
     windowManager.broadcastToAllWindows("meeting-stopped", status);
+    managerServer.broadcast("library", { reason: "meeting-stopped" });
     logger.info("Recording stopped", { folder: status.folder });
 
     // The final pass runs in the background: it takes minutes, and nothing in
@@ -435,11 +669,11 @@ class ApplicationController {
    * The second pass over the archived audio. Broadcasts progress so the overlay
    * can show it, then compresses the archive once the transcript exists.
    */
-  async runFinalPass({ folder, meta, events = [] }) {
+  async runFinalPass({ folder, meta, events = [], overrides = {} }) {
     // Queued, never refused: a meeting that ends while another pass runs waits
     // its turn instead of silently never getting a final transcript.
     const paths = transcriptionService.getPaths();
-    const result = await offlinePass.enqueue({ folder, meta, events, paths });
+    const result = await offlinePass.enqueue({ folder, meta, events, paths, overrides });
 
     if (result.ok) {
       await this.compressArchive(meta, paths);
@@ -457,7 +691,9 @@ class ApplicationController {
     if (!format || format === "wav") return;
 
     for (const entry of meta.streams || []) {
-      if (!fs.existsSync(entry.path)) continue;
+      // Only the WAVs the recorder wrote: an imported recording keeps its own
+      // file (and for it the ".wav" -> ".flac" target would be the source itself).
+      if (!/\.wav$/i.test(entry.path) || !fs.existsSync(entry.path)) continue;
 
       if (format === "none") {
         try {
@@ -518,7 +754,7 @@ class ApplicationController {
    * editing its glossary.txt, or with a different model. This is the loop that
    * makes the archive worth keeping.
    */
-  async rerunFinalPass(folder) {
+  async rerunFinalPass(folder, overrides = {}) {
     try {
       const target = folder || meetingService.folder;
       if (!target) return { ok: false, error: "No meeting folder was given" };
@@ -536,6 +772,8 @@ class ApplicationController {
           entry.path,
           path.join(target, "audio", `${entry.stream}.flac`),
           path.join(target, "audio", `${entry.stream}.wav`),
+          // Imported recordings keep their own name and format.
+          entry.path ? path.join(target, "audio", path.basename(entry.path)) : null,
         ];
         const found = candidates.find((candidate) => candidate && fs.existsSync(candidate));
         if (found) entry.path = found;
@@ -551,7 +789,7 @@ class ApplicationController {
         }
       }
 
-      return await this.runFinalPass({ folder: target, meta, events });
+      return await this.runFinalPass({ folder: target, meta, events, overrides });
     } catch (error) {
       logger.error("Re-run of the final pass failed", { error: error.message });
       return { ok: false, error: error.message };
@@ -562,11 +800,11 @@ class ApplicationController {
   resumePendingFinalPasses() {
     // Left on disk otherwise, so they resume once Whisper is set up again.
     if (!settingsStore.get("offlinePassEnabled") || !transcriptionService.isAvailable()) return;
-    const folders = offlinePass.takePending();
-    if (folders.length === 0) return;
-    logger.info("Resuming pending final passes", { count: folders.length });
-    for (const folder of folders) {
-      this.rerunFinalPass(folder).then((result) => {
+    const pending = offlinePass.takePending();
+    if (pending.length === 0) return;
+    logger.info("Resuming pending final passes", { count: pending.length });
+    for (const { folder, overrides } of pending) {
+      this.rerunFinalPass(folder, overrides).then((result) => {
         if (!result.ok && !result.cancelled) {
           logger.warn("Skipped a pending final pass", { folder, error: result.error });
         }
@@ -590,10 +828,10 @@ class ApplicationController {
     return rows.map((row) => ({ ...row, estimate: speedStats.estimate(row.id, row, mode, threads) }));
   }
 
-  downloadModel(id) {
+  downloadModel(id, options = {}) {
     try {
       // Progress and the outcome arrive as "model-progress" events.
-      modelStore.download(id, transcriptionService.getPaths()).catch(() => {});
+      modelStore.download(id, transcriptionService.getPaths(), options).catch(() => {});
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -608,8 +846,9 @@ class ApplicationController {
         recording: transcriptionService.isRecording,
         liveModel: settings.whisperModel,
         finalRunning: status.running,
-        finalModel: settings.offlineModel,
-        diffModel: settings.offlineDiffModel,
+        // A re-run from the manager may be using its own model right now.
+        finalModel: (status.overrides && status.overrides.model) || settings.offlineModel,
+        diffModel: status.overrides && status.overrides.diffModel !== undefined ? status.overrides.diffModel : settings.offlineDiffModel,
       });
     } catch (error) {
       return { ok: false, error: error.message };
@@ -686,6 +925,18 @@ class ApplicationController {
     return { ok: true };
   }
 
+  /** Start the manager's local server if needed and open it in the default browser. */
+  async openManager() {
+    try {
+      const url = await managerServer.open();
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (error) {
+      logger.error("Could not open the manager", { error: error.message });
+      return { ok: false, error: error.message };
+    }
+  }
+
   openMeetingFolder() {
     const folder = meetingService.folder || settingsStore.get("transcriptRoot");
     try {
@@ -719,10 +970,20 @@ class ApplicationController {
 
   saveSettings(patch) {
     const previous = settingsStore.all();
-    const next = settingsStore.update(patch);
+    let next = settingsStore.update(patch);
+
+    // Edits made under an active profile are remembered by that profile.
+    // Picking a profile passes its own values through here too, which is a no-op.
+    if (!patch.profiles && !patch.myProfiles) {
+      const remembered = profiles.recordEdit(next.activeProfile, patch, next);
+      if (remembered) next = settingsStore.update(remembered);
+    }
 
     if (patch.appIcon && patch.appIcon !== previous.appIcon) {
       this.updateAppIcon(patch.appIcon);
+    }
+    if (patch.transcriptRoot && patch.transcriptRoot !== previous.transcriptRoot) {
+      this.ensureLibraryShortcut();
     }
     if (patch.windowGap !== undefined) {
       windowManager.setWindowGap(Number(patch.windowGap) || 10);
@@ -734,10 +995,141 @@ class ApplicationController {
     // Skip the settings pane itself: it already has these values, and pushing
     // them back would rewrite fields under the user's cursor.
     windowManager.broadcastToAllWindows("load-settings", this.getSettings(), ["settings"]);
+    managerServer.broadcast("settings", { reason: "saved" });
     return { ok: true, settings: next };
   }
 
+  listProfiles() {
+    const settings = settingsStore.all();
+    return { active: profiles.activeId(settings), profiles: profiles.listProfiles(settings, settingsStore.defaults()) };
+  }
+
+  selectProfile(id) {
+    try {
+      const settings = settingsStore.all();
+      const { patch } = profiles.select(id, settings, settingsStore.defaults());
+      this.saveSettings(patch);
+      return { ok: true, settings: this.getSettings(), ...this.listProfiles() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /** Store a profile change, then re-apply it if it is the active profile. */
+  _profileChanged(id, patch) {
+    const settings = settingsStore.all();
+    settingsStore.update(patch);
+    if (id && id === settings.activeProfile && profiles.getProfile(id, settingsStore.all())) return this.selectProfile(id);
+    managerServer.broadcast("settings", { reason: "profile" });
+    windowManager.broadcastToAllWindows("load-settings", this.getSettings());
+    return { ok: true, ...this.listProfiles() };
+  }
+
+  /** Edit any profile's values (browser manager); the active one is applied at once. */
+  updateProfile(id, values, meta = {}) {
+    try {
+      return this._profileChanged(id, profiles.update(id, values, settingsStore.all(), meta));
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  /** A new profile of the user's own; `fromId` copies another profile, otherwise the current settings. */
+  createProfile({ label, flag, fromId, activate }) {
+    try {
+      const settings = settingsStore.all();
+      const source = fromId ? profiles.getProfile(fromId, settings, settingsStore.defaults()) : null;
+      if (fromId && !source) throw new Error("Unknown profile: " + fromId);
+      const { id, patch } = profiles.create({ label, flag, values: source ? source.values : settings }, settings);
+      settingsStore.update(patch);
+      if (activate) return { ...this.selectProfile(id), id };
+      managerServer.broadcast("settings", { reason: "profile" });
+      return { ok: true, id, ...this.listProfiles() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  deleteProfile(id) {
+    try {
+      return this._profileChanged(null, profiles.remove(id, settingsStore.all()));
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  resetProfile(id) {
+    try {
+      return this._profileChanged(id, profiles.reset(id, settingsStore.all()));
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  // ── Voice labels ──
+
+  voicePaths() {
+    const paths = transcriptionService.getPaths();
+    voiceService.configure(paths);
+    return paths;
+  }
+
+  async enrollVoice(seconds = 25) {
+    if (transcriptionService.isRecording) return { ok: false, error: "Stop the recording first" };
+    const say = (message) => windowManager.broadcastToAllWindows("voice-progress", message);
+    try {
+      this.voicePaths();
+      voiceService.beginEnrollment();
+      const started = await windowManager.runInAudioWindow(
+        `window.__startCapture(${JSON.stringify({
+          system: false,
+          mic: true,
+          systemSource: "loopback",
+          micDeviceLabel: settingsStore.get("micDeviceLabel") || "",
+        })})`
+      );
+      logger.info("Voice enrollment capture started", started);
+      for (let left = seconds; left > 0; left--) {
+        say(`Recording… speak normally, ${left} s left`);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await this.stopAudioCapture();
+      say("Analysing your voice…");
+      const result = await voiceService.finishEnrollment();
+      say("Voice saved.");
+      return result;
+    } catch (error) {
+      voiceService.cancelEnrollment();
+      await this.stopAudioCapture();
+      logger.warn("Voice enrollment failed", { error: error.message });
+      say(error.message);
+      return { ok: false, error: error.message };
+    }
+  }
+
   setupIPCHandlers() {
+    ipcMain.handle("voice:status", () => {
+      this.voicePaths();
+      return voiceService.status();
+    });
+    ipcMain.handle("voice:setup", async () => {
+      this.voicePaths();
+      const forward = (line) => windowManager.broadcastToAllWindows("voice-progress", line);
+      voiceService.on("progress", forward);
+      try {
+        return { ok: true, ...(await voiceService.setup()) };
+      } catch (error) {
+        return { ok: false, error: error.message };
+      } finally {
+        voiceService.off("progress", forward);
+      }
+    });
+    ipcMain.handle("voice:enroll", (_event, seconds) => this.enrollVoice(Math.min(60, Math.max(15, Number(seconds) || 25))));
+    ipcMain.handle("voice:delete", () => voiceService.deleteVoiceprint());
+    ipcMain.handle("profiles:list", () => this.listProfiles());
+    ipcMain.handle("profiles:select", (_event, id) => this.selectProfile(id));
+    ipcMain.handle("profiles:reset", (_event, id) => this.resetProfile(id));
+
     // ── Meeting ──
     ipcMain.handle("meeting:start", () => this.startRecording());
     ipcMain.handle("meeting:stop", () => this.stopRecording());
@@ -750,6 +1142,9 @@ class ApplicationController {
     ipcMain.handle("meeting:add-marker", (_event, text) => this.addMarker(text));
     ipcMain.handle("meeting:final-status", () => offlinePass.getStatus());
     ipcMain.handle("meeting:rerun-final", (_event, folder) => this.rerunFinalPass(folder));
+
+    ipcMain.handle("manager:open", () => this.openManager());
+    ipcMain.handle("glossaries:list", () => libraryService.projectGlossaries().map(({ name, terms, text }) => ({ name, terms, text })));
 
     ipcMain.handle("meeting:pick-and-rerun", async () => {
       const result = await dialog.showOpenDialog({
@@ -768,6 +1163,8 @@ class ApplicationController {
     // ── Audio engine ──
     ipcMain.on("audio-chunk", (_event, data) => {
       if (data && data.buffer) {
+        // Voice enrollment listens to the mic while no meeting is recording.
+        if (data.streamId === "mic") voiceService.collect(Buffer.from(data.buffer));
         transcriptionService.ingest(data.streamId, Buffer.from(data.buffer));
       }
     });
@@ -1033,6 +1430,7 @@ class ApplicationController {
   }
 
   onWindowAllClosed() {
+    if (this.libraryOnly) return;
     if (process.platform !== "darwin") app.quit();
   }
 
@@ -1057,6 +1455,9 @@ class ApplicationController {
     offlinePass.shutdown();
     meetingService.shutdown();
     transcriptionService.shutdown();
+    phoneServer.stop("quit");
+    managerServer.stop();
+    voiceService.shutdown();
     windowManager.destroyAllWindows();
     logger.info("Application shutting down");
   }
@@ -1067,6 +1468,9 @@ class ApplicationController {
       offlinePass.shutdown();
       meetingService.shutdown();
       transcriptionService.shutdown();
+      phoneServer.stop("quit");
+      managerServer.stop();
+      voiceService.shutdown();
       windowManager.destroyAllWindows();
       globalShortcut.unregisterAll();
       app.quit();
@@ -1193,5 +1597,5 @@ if (!gotSingleInstanceLock) {
   app.quit();
 } else {
   const controller = new ApplicationController();
-  app.on("second-instance", () => controller.handleSecondInstance());
+  app.on("second-instance", (_event, argv) => controller.handleSecondInstance(argv));
 }

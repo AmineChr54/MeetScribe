@@ -107,11 +107,17 @@ class ConfigManager {
         // ">" a line of prose context. Only the first ~96 tokens of terms are
         // used: a longer list gets read out as speech.
         glossary: '',
+        // Project glossaries (by name, from <transcriptRoot>/.glossaries) that
+        // new meetings start with, ahead of the glossary text above.
+        glossarySet: [],
         device: 'auto',
         computeType: 'auto',
         cpuThreads: 0,
         beamSize: 1,
         workerCount: 1,
+        // Optional "You / Other n" labels from speaker embeddings (off by default).
+        voiceLabels: false,
+        voiceMatchThreshold: 0.45,
         idleUnloadMs: 60000,
         pythonPath: '',
 
@@ -120,6 +126,9 @@ class ConfigManager {
         // pause, so segments align with utterance boundaries instead of being
         // cut on a blind timer mid-word.
         vadEnabled: true,
+        // Live transcript on/off. Off still records and archives the audio, so
+        // the final pass can write the whole transcript afterwards.
+        liveEnabled: true,
         // Trailing silence (ms) that ends an utterance and triggers a flush.
         silenceHangoverMs: 700,
         // Minimum accumulated speech (ms) before a pause counts as an utterance

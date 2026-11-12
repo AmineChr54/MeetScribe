@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <title>MeetScribe Recorder</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/phone.css" />
+</head>
+<body>
+  <header class="top">
+    <img src="/logo.svg" alt="" width="30" height="30" />
+    <div>
+      <div class="wordmark">MeetScribe</div>
+      <div class="sub">Phone recorder</div>
+    </div>
+    <span class="link-state" id="linkState" data-state="checking">Connecting…</span>
+  </header>
+
+  <main>
+    <section class="card recorder" id="recorder">
+      <p class="hint" id="hint">Tap the button to start recording with this phone's microphone.</p>
+      <div class="timer" id="timer" aria-live="off">0:00</div>
+      <div class="meter" aria-hidden="true"><div class="meter-fill" id="meter"></div></div>
+
+      <div class="controls">
+        <button type="button" class="pause" id="pauseBtn" hidden>Pause</button>
+        <button type="button" class="rec" id="recBtn" aria-label="Start recording"><span class="rec-icon"></span></button>
+        <span class="spacer" aria-hidden="true"></span>
+      </div>
+      <p class="rec-label" id="recLabel">Record</p>
+
+      <label class="name">
+        <span>Name (optional)</span>
+        <input type="text" id="name" maxlength="120" placeholder="Phone recording" autocomplete="off" enterkeyhint="done" />
+      </label>
+
+      <div class="progress" id="progress" hidden><div class="progress-fill" id="progressFill"></div></div>
+    </section>
+
+    <section class="card notice" id="unsent" hidden>
+      <h2>Recording not sent yet</h2>
+      <p id="unsentText"></p>
+      <div class="row">
+        <button type="button" class="primary" id="sendBtn">Send to PC</button>
+        <button type="button" class="ghost" id="laterBtn">Not now</button>
+        <button type="button" class="ghost danger" id="discardBtn">Discard</button>
+      </div>
+    </section>
+
+    <section class="card notice done" id="done" hidden>
+      <h2>Sent</h2>
+      <p id="doneText"></p>
+      <button type="button" class="primary" id="againBtn">Record another</button>
+    </section>
+
+    <p class="foot">Keep this page open while you record. On iPhone, locking the screen or switching apps can stop the recording.
+      The audio goes only to MeetScribe on your PC and is kept on this phone until the PC has it.</p>
+  </main>
+
+  <script src="/phone.js"></script>
+</body>
+</html>

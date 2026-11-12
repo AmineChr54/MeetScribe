@@ -18,10 +18,12 @@ archived stream in one continuous decode:
   - word-level timestamps and probabilities, so the transcript can mark its own
     uncertain spots
 
-Enabling context is what makes repetition loops possible, so the temperature
-ladder plus compression_ratio_threshold is mandatory here, not optional: when a
-decode goes degenerate the compression ratio spikes and the window is retried
-hotter. That is the safety net the live path deliberately does without.
+Context and hotwords are what make repetition loops possible. In quality mode
+the temperature ladder plus compression_ratio_threshold catches them: when a
+window goes degenerate its compression ratio spikes and it is retried hotter.
+Fast mode's batched pipeline only ever decodes at the first temperature, so
+there the loops are found afterwards and each looped segment is decoded again
+on its own, with the ladder and without the glossary (redo_loops).
 
 Protocol: takes one argument, the path to a JSON job file. Progress is reported
 as newline-delimited JSON on stdout; the (large) result is written to the job's
@@ -35,9 +37,11 @@ output path rather than piped, so a long meeting cannot wedge on a pipe buffer.
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
+import zlib
 
 # Report progress at most this often, so a fast stream cannot flood the pipe.
 PROGRESS_STEP = 0.02
@@ -53,6 +57,13 @@ PROMPT_TOKEN_BUDGET = 64
 # Speech chunks decoded together in fast mode. 8 keeps a 12-core CPU busy
 # without the memory of a large batch.
 BATCH_SIZE = 8
+
+# A segment is a repetition loop when its text compresses better than this
+# (faster-whisper's own threshold) or one word comes back this many times in a row.
+LOOP_COMPRESSION_RATIO = 2.4
+LOOP_WORD_RUN = 4
+SAMPLE_RATE = 16000
+WORD_PATTERN = re.compile(r"\w+(?:['-]\w+)*", re.UNICODE)
 
 
 def emit(payload):
@@ -85,8 +96,19 @@ def resolve_compute_type(requested, device):
     return 'float16' if device == 'cuda' else 'int8'
 
 
+def resolve_local_model(name, model_dir):
+    """Models converted in-app live in <model_dir>/converted/<repo with -- for />."""
+    if model_dir and name:
+        candidate = os.path.join(model_dir, 'converted', name.replace('/', '--'))
+        if os.path.isfile(os.path.join(candidate, 'model.bin')):
+            return candidate
+    return name
+
+
 def load_model(job, name):
     from faster_whisper import WhisperModel
+
+    name = resolve_local_model(name, job.get('model_dir'))
 
     device = resolve_device(job.get('device'))
     compute_type = resolve_compute_type(job.get('compute_type'), device)
@@ -156,6 +178,89 @@ def decode_stream(model, job, entry, pass_name, result):
         return transcribe_stream(model, dict(job, hotwords='', initial_prompt=''), entry, pass_name)
 
 
+def compression_ratio(text):
+    data = text.encode('utf-8')
+    return len(data) / len(zlib.compress(data)) if data else 0.0
+
+
+def longest_word_run(text):
+    words = [word.lower() for word in WORD_PATTERN.findall(text)]
+    best = run = 1 if words else 0
+    for previous, word in zip(words, words[1:]):
+        run = run + 1 if word == previous else 1
+        best = max(best, run)
+    return best
+
+
+def looks_looped(text):
+    return compression_ratio(text) > LOOP_COMPRESSION_RATIO or longest_word_run(text) >= LOOP_WORD_RUN
+
+
+def segment_dict(segment, want_words, offset=0.0):
+    words = []
+    if want_words and getattr(segment, 'words', None):
+        for word in segment.words:
+            words.append({
+                'start': round(word.start + offset, 3),
+                'end': round(word.end + offset, 3),
+                'word': word.word,
+                'probability': round(float(word.probability), 4),
+            })
+    return {
+        'start': round(segment.start + offset, 3),
+        'end': round(segment.end + offset, 3),
+        'text': segment.text.strip(),
+        'avg_logprob': round(float(getattr(segment, 'avg_logprob', 0.0) or 0.0), 4),
+        'no_speech_prob': round(float(getattr(segment, 'no_speech_prob', 0.0) or 0.0), 4),
+        'compression_ratio': round(float(getattr(segment, 'compression_ratio', 0.0) or 0.0), 4),
+        'words': words,
+    }
+
+
+def redo_loops(model, entry, collected, common, want_words):
+    """Decode every looped segment again on its own: no hotwords (they are what
+    usually starts the loop) and with the temperature ladder, which retries a
+    degenerate decode hotter. A redo that still loops worse is thrown away.
+    Returns how many segments were replaced."""
+    looped = [index for index, segment in enumerate(collected) if looks_looped(segment['text'])]
+    if not looped:
+        return 0
+    from faster_whisper.audio import decode_audio
+    audio = decode_audio(entry['path'], sampling_rate=SAMPLE_RATE)
+    options = dict(common, hotwords=None, initial_prompt=None, vad_filter=False)
+    options.pop('vad_parameters', None)
+    replaced = 0
+    for index in looped:
+        old = collected[index]
+        start = old['start']
+        clip = audio[int(start * SAMPLE_RATE):int(old['end'] * SAMPLE_RATE)]
+        if len(clip) < SAMPLE_RATE // 4:
+            continue
+        try:
+            parts, _ = model.transcribe(clip, condition_on_previous_text=False, **options)
+            parts = [segment_dict(part, want_words, start) for part in parts]
+        except Exception as exc:  # noqa: BLE001
+            log('{}: redo of a looped segment failed ({})'.format(entry['stream'], exc))
+            continue
+        text = ' '.join(part['text'] for part in parts if part['text']).strip()
+        if looks_looped(text) and compression_ratio(text) >= compression_ratio(old['text']):
+            continue
+        # One segment in, one out, so the timeline keeps its shape. Empty text
+        # means the loop was over silence; the renderer skips it.
+        logprobs = [part['avg_logprob'] for part in parts]
+        collected[index] = dict(
+            old,
+            text=text,
+            words=[word for part in parts for word in part['words']],
+            avg_logprob=round(sum(logprobs) / len(logprobs), 4) if logprobs else old['avg_logprob'],
+            compression_ratio=round(compression_ratio(text), 4),
+            redone=True,
+        )
+        replaced += 1
+    log('{}: {} of {} looped segments decoded again'.format(entry['stream'], replaced, len(looped)))
+    return replaced
+
+
 def transcribe_stream(model, job, entry, pass_name):
     """Decode one archived stream end to end and collect word-level output."""
     language = job.get('language') or 'auto'
@@ -166,9 +271,10 @@ def transcribe_stream(model, job, entry, pass_name):
     common = dict(
         language=None if language in ('auto', '', None) else language,
         beam_size=int(job.get('beam_size') or 2),
-        # Loop-breaker: a window that decodes into repetition is retried hotter.
+        # Loop-breaker for quality mode and for redo_loops. The batched (fast)
+        # pipeline uses only the first temperature and never retries.
         temperature=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        compression_ratio_threshold=2.4,
+        compression_ratio_threshold=LOOP_COMPRESSION_RATIO,
         log_prob_threshold=-1.0,
         no_speech_threshold=0.6,
         # Silero, not the live path's RMS gate: a trained speech classifier does
@@ -213,25 +319,7 @@ def transcribe_stream(model, job, entry, pass_name):
     last_pct = -1.0
 
     for segment in segments:
-        words = []
-        if want_words and getattr(segment, 'words', None):
-            for word in segment.words:
-                words.append({
-                    'start': round(word.start, 3),
-                    'end': round(word.end, 3),
-                    'word': word.word,
-                    'probability': round(float(word.probability), 4),
-                })
-
-        collected.append({
-            'start': round(segment.start, 3),
-            'end': round(segment.end, 3),
-            'text': segment.text.strip(),
-            'avg_logprob': round(float(getattr(segment, 'avg_logprob', 0.0) or 0.0), 4),
-            'no_speech_prob': round(float(getattr(segment, 'no_speech_prob', 0.0) or 0.0), 4),
-            'compression_ratio': round(float(getattr(segment, 'compression_ratio', 0.0) or 0.0), 4),
-            'words': words,
-        })
+        collected.append(segment_dict(segment, want_words))
 
         pct = min(1.0, segment.end / duration)
         if pct - last_pct >= PROGRESS_STEP:
@@ -242,6 +330,10 @@ def transcribe_stream(model, job, entry, pass_name):
                 'pass': pass_name,
                 'pct': round(pct, 4),
             })
+
+    loops_redone = 0
+    if job.get('mode') != 'quality':
+        loops_redone = redo_loops(model, entry, collected, common, want_words)
 
     emit({'event': 'progress', 'stream': entry['stream'], 'pass': pass_name, 'pct': 1.0})
     decode_sec = time.time() - started
@@ -261,6 +353,7 @@ def transcribe_stream(model, job, entry, pass_name):
         'duration': duration,
         'speechSec': round(float(speech_sec), 2),
         'decodeSec': round(decode_sec, 2),
+        'loopsRedone': loops_redone,
         'segments': collected,
     }
 
