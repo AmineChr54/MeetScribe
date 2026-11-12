@@ -44,6 +44,7 @@
       <div class="sidebar-foot">
         <div class="foot-tools">
           <button class="icon-btn labelled" id="importBtn" title="Import a recording (or drop an audio file anywhere)"><i data-icon="upload"></i><span>Import</span></button>
+          <button class="icon-btn labelled" id="phoneBtn" title="Record with your phone's microphone (scan a QR code)"><i data-icon="phone"></i><span>Phone</span></button>
           <button class="icon-btn labelled" id="storageBtn" title="Storage and cleanup"><i data-icon="drive"></i><span>Storage</span></button>
           <button class="icon-btn labelled" id="globalCorrectionsBtn" title="Corrections for all new meetings"><i data-icon="spell"></i><span>Fixes</span></button>
         </div>
@@ -290,6 +291,34 @@
         <button class="btn ghost" type="button" id="dialogCancel">Cancel</button>
       </div>
     </form>
+  </dialog>
+  <dialog id="phoneDialog" class="phone-dialog" aria-labelledby="phoneTitle">
+    <h3 id="phoneTitle">Record with your phone</h3>
+    <p class="muted">Scan the code with the phone's camera. Record on the phone; when you stop, the recording comes here as a new meeting and is transcribed.</p>
+    <div class="phone-qr"><img id="phoneQr" alt="QR code with the phone recorder's link" width="232" height="232" /></div>
+    <label class="phone-address" id="phoneAddressRow" hidden>
+      <span>Network</span>
+      <select id="phoneAddress"></select>
+    </label>
+    <div class="phone-status" id="phoneStatus" data-state="waiting">
+      <span class="dot"></span><span id="phoneStatusText">Starting…</span>
+    </div>
+    <details class="phone-help">
+      <summary>The phone can't open the page?</summary>
+      <ul>
+        <li>The phone must be on the same Wi-Fi as this PC (not a guest network).</li>
+        <li>The phone warns that the connection is not private: MeetScribe made its own certificate. Choose <b>Advanced → Proceed</b> (Chrome) or <b>Show details → visit this website</b> (Safari). It asks once per certificate.</li>
+        <li>If Windows asked about the firewall, allow MeetScribe on <b>private</b> networks. If you missed it: Windows Security → Firewall → Allow an app.</li>
+        <li>A recording the phone could not send waits on the phone. Scan the code again to send it; this works while the PC still has the same network address (below).</li>
+        <li>Link: <code id="phoneUrl" class="phone-url"></code></li>
+      </ul>
+    </details>
+    <div class="dialog-buttons">
+      <button class="btn danger-soft" type="button" id="phoneStop">Turn off</button>
+      <span class="grow"></span>
+      <button class="btn ghost" type="button" id="phoneOpenMeeting" hidden>Open meeting</button>
+      <button class="btn primary" type="button" id="phoneClose">Close</button>
+    </div>
   </dialog>
   <div id="menu" class="menu" role="menu" hidden></div>
   <div id="dropZone" class="drop-zone" hidden><div><i data-icon="upload"></i><p>Drop to import this recording</p></div></div>

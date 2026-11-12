@@ -35,6 +35,28 @@ test('changes need our own Origin even with a valid cookie', () => {
   assert.equal(http.checkRequest({ method: 'POST', host, origin: `http://127.0.0.1:${port}`, queryToken: token }, { port, token }).ok, false);
 });
 
+test('the phone server checks its LAN host, an https Origin and its own cookie', () => {
+  const lan = { port, token, hosts: ['192.168.1.20'], scheme: 'https', cookieName: 'phone' };
+  const host = `192.168.1.20:${port}`;
+  const phoneCookie = `phone=${token}`;
+  assert.equal(http.checkRequest({ method: 'GET', host, cookieHeader: phoneCookie }, lan).ok, true);
+  // Loopback names and other addresses are not ours here (DNS rebinding).
+  assert.equal(http.checkRequest({ method: 'GET', host: `127.0.0.1:${port}`, cookieHeader: phoneCookie }, lan).reason, 'host');
+  assert.equal(http.checkRequest({ method: 'GET', host: `192.168.1.21:${port}`, cookieHeader: phoneCookie }, lan).reason, 'host');
+  // The manager's cookie does not open the phone server.
+  assert.equal(http.checkRequest({ method: 'GET', host, cookieHeader: cookie }, lan).reason, 'token');
+  assert.deepEqual(http.checkRequest({ method: 'GET', host, queryToken: token }, lan), { ok: true, setCookie: true });
+  // Changes need the https Origin.
+  assert.equal(http.checkRequest({ method: 'POST', host, origin: `http://${host}`, cookieHeader: phoneCookie }, lan).reason, 'origin');
+  assert.equal(http.checkRequest({ method: 'POST', host, origin: `https://${host}`, cookieHeader: phoneCookie }, lan).ok, true);
+  assert.match(http.sessionCookie(token, { cookieName: 'phone', secure: true }), /^phone=a+; HttpOnly; Secure; SameSite=Strict; Path=\/$/);
+  // Opened from the camera app (a cross-site navigation): Lax, or the cookie
+  // set on the first redirect is not sent on the next request.
+  assert.match(http.sessionCookie(token, { cookieName: 'phone', secure: true, sameSite: 'Lax' }), /; Secure; SameSite=Lax; Path=\/$/);
+  assert.match(http.sessionCookie(token), /SameSite=Strict/);
+  assert.doesNotMatch(http.sessionCookie(token), /Secure/);
+});
+
 test('byte ranges are parsed for seeking', () => {
   assert.equal(http.parseRange(undefined, 100), null);
   assert.deepEqual(http.parseRange('bytes=0-9', 100), { start: 0, end: 9 });

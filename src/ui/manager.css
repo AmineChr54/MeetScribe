@@ -577,6 +577,43 @@ dialog p { margin: 0 0 12px; font-size: 13px; white-space: pre-line; }
 #dialogFields .flag-pick { display: flex; flex-wrap: wrap; gap: 6px; }
 .dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; }
 #dialogCancel { order: -1; }
+
+/* ── Phone recorder ── */
+.phone-qr {
+  display: grid;
+  place-items: center;
+  margin: 4px 0 14px;
+}
+/* White behind the code in both themes: scanners want dark on light. */
+.phone-qr img { width: 232px; height: 232px; background: #fff; border-radius: 12px; padding: 6px; image-rendering: pixelated; }
+.phone-qr img:not([src]) { visibility: hidden; }
+.phone-address { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.phone-address select { flex: 1; }
+.phone-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pane-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.phone-status .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+.phone-status[data-state="connected"] .dot { background: var(--ok); }
+.phone-status[data-state="recording"] .dot { background: var(--danger); animation: phone-blink 1.2s ease-in-out infinite; }
+.phone-status[data-state="receiving"] .dot,
+.phone-status[data-state="received"] .dot { background: var(--accent); }
+.phone-status[data-state="off"] .dot { background: var(--border-strong); }
+@keyframes phone-blink { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .phone-status[data-state="recording"] .dot { animation: none; } }
+.phone-help { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.phone-help summary { cursor: pointer; }
+.phone-help ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.phone-url { word-break: break-all; font-size: 11px; }
+.phone-dialog .dialog-buttons .grow { flex: 1; }
+.icon-btn.labelled.live { color: var(--accent-ink); background: var(--accent-soft); }
 .pop { position: absolute; z-index: 5; box-shadow: var(--shadow-lg); }
 
 .menu {

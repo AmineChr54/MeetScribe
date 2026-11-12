@@ -60,6 +60,7 @@ const modelStore = require("./src/services/model-store.service");
 const profiles = require("./src/core/profiles");
 const libraryService = require("./src/services/library.service");
 const managerServer = require("./src/services/manager-server.service");
+const phoneServer = require("./src/services/phone-server.service");
 const libraryEdit = require("./src/services/library-edit.service");
 const voiceService = require("./src/services/voice.service");
 const speedStats = require("./src/services/speed-stats.service");
@@ -247,6 +248,8 @@ class ApplicationController {
 
   onManagerStopped() {
     if (!this.libraryOnly) return;
+    // A phone may still be recording; this runs again when its link closes.
+    if (managerServer.isRunning() || phoneServer.isRunning()) return;
     const pass = offlinePass.getStatus();
     if (pass.folder || (pass.queued || []).length) {
       // Finish the passes first; check again when the queue moves.
@@ -413,6 +416,14 @@ class ApplicationController {
     });
     // Deletes from the manager go to the Recycle Bin, never straight off the disk.
     libraryEdit.setTrash((target) => shell.trashItem(target));
+    // Fire and forget: progress reaches the page as "final-pass" events.
+    const rerunInBackground = (folder, overrides) => {
+      this.rerunFinalPass(folder, overrides).then((result) => {
+        if (!result.ok && !result.cancelled) {
+          managerServer.broadcast("final-pass", { state: "failed", folder, message: `Final pass failed: ${result.error}` });
+        }
+      });
+    };
     managerServer.setApi({
       status: () => ({
         recording: transcriptionService.isRecording,
@@ -425,14 +436,7 @@ class ApplicationController {
       }),
       models: () => this.listModels(),
       queue: () => offlinePass.getStatus(),
-      // Fire and forget: progress reaches the page as "final-pass" events.
-      rerun: (folder, overrides) => {
-        this.rerunFinalPass(folder, overrides).then((result) => {
-          if (!result.ok && !result.cancelled) {
-            managerServer.broadcast("final-pass", { state: "failed", folder, message: `Final pass failed: ${result.error}` });
-          }
-        });
-      },
+      rerun: rerunInBackground,
       cancelRunning: () => offlinePass.cancel(),
       dequeue: (folder) => offlinePass.dequeue(folder),
       reorder: (folder, delta) => offlinePass.reorder(folder, delta),
@@ -449,9 +453,22 @@ class ApplicationController {
       searchModels: (query) => modelStore.searchHub(query),
       openApp: () => this.leaveLibraryOnly(),
       libraryOnly: () => this.enterLibraryOnly(),
+      phoneStatus: () => phoneServer.status(),
+      phoneStart: (address) => phoneServer.start(address),
+      phoneStop: () => phoneServer.stop(),
+      phoneQr: () => phoneServer.qrSvg(),
     });
     // Library-only mode ends when the manager has been closed for a while.
     managerServer.on("stopped", () => this.onManagerStopped());
+
+    // Recordings made on a phone arrive as imports and go to the final pass.
+    phoneServer.setApi({
+      whisperReady: () => transcriptionService.isAvailable(),
+      rerun: rerunInBackground,
+    });
+    phoneServer.on("status", (status) => managerServer.broadcast("phone", status));
+    phoneServer.on("received", () => managerServer.broadcast("library", { reason: "phone" }));
+    phoneServer.on("stopped", () => this.onManagerStopped());
     // Everything the overlay hears about the final pass, the manager hears too.
     for (const event of ["progress", "queued", "done", "failed", "cancelled"]) {
       offlinePass.on(event, (payload) => {
@@ -1438,6 +1455,7 @@ class ApplicationController {
     offlinePass.shutdown();
     meetingService.shutdown();
     transcriptionService.shutdown();
+    phoneServer.stop("quit");
     managerServer.stop();
     voiceService.shutdown();
     windowManager.destroyAllWindows();
@@ -1450,6 +1468,7 @@ class ApplicationController {
       offlinePass.shutdown();
       meetingService.shutdown();
       transcriptionService.shutdown();
+      phoneServer.stop("quit");
       managerServer.stop();
       voiceService.shutdown();
       windowManager.destroyAllWindows();
