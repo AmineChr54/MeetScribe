@@ -72,7 +72,7 @@ class WindowManager {
       },
       settings: {
         width: 470,
-        height: 580,
+        height: 640,
         file: 'settings.html',
         title: 'Settings',
         frame: false,
@@ -718,6 +718,7 @@ class WindowManager {
     
     // Update stored position (use main window position as reference)
     this.boundWindowsPosition = { x: adjustedMainX, y: startY };
+    this.followBannerWithSettings();
     
     logger.debug('Positioned bound windows at top (column layout)', {
       mainPosition: `${mainX},${mainY}`,
@@ -767,6 +768,7 @@ class WindowManager {
     // Update stored position (use main window as reference)
     this.boundWindowsPosition.x = newMainX;
     this.boundWindowsPosition.y = newMainY;
+    this.followBannerWithSettings();
     
     logger.debug('Moved bound windows (maintaining top preference)', {
       delta: `${deltaX},${deltaY}`,
@@ -888,6 +890,7 @@ class WindowManager {
       window.hide();
       return false;
     }
+    this.hideSettings();
     this.showOnCurrentDesktop(window);
     this.positionBoundWindows();
     return true;
@@ -896,6 +899,9 @@ class WindowManager {
   showTranscriptWindow() {
     const window = this.windows.get('transcript');
     if (!window || window.isDestroyed() || window.isVisible()) return;
+    // A recording starting must not yank an open settings window away.
+    const settingsWindow = this.windows.get('settings');
+    if (settingsWindow && !settingsWindow.isDestroyed() && settingsWindow.isVisible()) return;
     this.showOnCurrentDesktop(window);
     this.positionBoundWindows();
   }
@@ -1103,12 +1109,51 @@ class WindowManager {
     return results;
   }
 
+  /**
+   * Put the settings window directly under the banner, where the transcript
+   * panel sits, instead of on top of it. Clamped so a tall window stays on screen.
+   */
+  positionSettingsBelowBanner() {
+    const settingsWindow = this.windows.get('settings');
+    const mainWindow = this.windows.get('main');
+    if (!settingsWindow || settingsWindow.isDestroyed()) return;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      this.centerWindow(settingsWindow);
+      return;
+    }
+
+    const display = this.currentDisplay || screen.getPrimaryDisplay();
+    const { x: displayX, y: displayY, width: screenWidth, height: screenHeight } = display.workArea;
+    const [mainX, mainY] = mainWindow.getPosition();
+    const [mainWidth, mainHeight] = mainWindow.getSize();
+    const [width, height] = settingsWindow.getSize();
+
+    const centredX = mainX + Math.round((mainWidth - width) / 2);
+    const x = Math.max(displayX, Math.min(displayX + screenWidth - width, centredX));
+    const wantedY = mainY + mainHeight + this.windowGap;
+    const y = Math.max(displayY, Math.min(displayY + screenHeight - height, wantedY));
+    settingsWindow.setPosition(x, y);
+  }
+
+  /** Keep an open settings window attached to the banner when the banner moves. */
+  followBannerWithSettings() {
+    const settingsWindow = this.windows.get('settings');
+    if (settingsWindow && !settingsWindow.isDestroyed() && settingsWindow.isVisible()) {
+      this.positionSettingsBelowBanner();
+    }
+  }
+
   showSettings() {
     const settingsWindow = this.windows.get('settings');
     if (settingsWindow) {
+      // One panel at a time: the transcript and settings share the same spot.
+      const transcriptWindow = this.windows.get('transcript');
+      if (transcriptWindow && !transcriptWindow.isDestroyed() && transcriptWindow.isVisible()) {
+        transcriptWindow.hide();
+      }
       this.showOnCurrentDesktop(settingsWindow);
-      this.centerWindow(settingsWindow); // This now positions at top-center
-      
+      this.positionSettingsBelowBanner();
+
       // Notify that settings window is shown
       setTimeout(() => {
         settingsWindow.webContents.send('settings-window-shown');
@@ -1357,8 +1402,10 @@ class WindowManager {
             newX = displayX + 50;
             newY = displayY + topMargin;
             break;
-          case 'transcript':
           case 'settings':
+            this.positionSettingsBelowBanner();
+            return;
+          case 'transcript':
             newX = displayX + (displayWidth - windowWidth) / 2;
             newY = displayY + topMargin;
             break;
@@ -1467,11 +1514,11 @@ class WindowManager {
     return this.windowGap;
   }
 
-  handleRecordingStarted() {
+  handleRecordingStarted({ showTranscript = true } = {}) {
     this.isRecording = true;
-    // Bring the transcript up automatically — it is the whole point of
-    // starting a recording.
-    this.showTranscriptWindow();
+    // Bring the transcript up automatically unless the profile says otherwise
+    // (a final-pass-only recording has nothing to show).
+    if (showTranscript) this.showTranscriptWindow();
     this.broadcastToAllWindows('recording-state', { recording: true });
     logger.debug('Recording started; transcript window shown');
   }

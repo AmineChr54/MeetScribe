@@ -69,6 +69,8 @@ const STOCK_PHRASES = {
 // things like "Bisssss…sss" — one 500-character "word" that sails through both
 // the phrase and the token repetition guards, because it is a single token.
 const CHARACTER_RUN_LIMIT = 24;
+// How long a finished line waits for its speaker label before going out without one.
+const LABEL_GRACE_MS = 1500;
 
 /**
  * One audio stream's worth of voice-activity detection and segmentation.
@@ -93,9 +95,12 @@ class TranscriptionStream extends EventEmitter {
    * @param {object}   options.vad         VAD tunables (see core/config.js)
    * @param {object}   options.transcriber object with transcribe(wavPath, opts)
    */
-  constructor({ id, label, vad, transcriber, language }) {
+  constructor({ id, label, vad, transcriber, language, labeler = null }) {
     super();
     this.id = id;
+    // Optional async (wavPath, durationMs) => label|null, run beside Whisper.
+    // Null (or a failure) keeps the stream's own label.
+    this.labeler = labeler;
     this.label = label;
     this.vad = vad;
     this.transcriber = transcriber;
@@ -345,7 +350,18 @@ class TranscriptionStream extends EventEmitter {
     this.pendingStarts.add(startedAt);
 
     try {
+      const labeling = this.labeler
+        ? Promise.resolve(this.labeler(wavPath, durationMs)).catch(() => null)
+        : Promise.resolve(null);
       const result = await this.transcriber.transcribe(wavPath, { streamId: this.id, audioMs: durationMs });
+      // The label is a nicety: it normally arrives long before the text, and a
+      // slow or wedged labeler gets a short grace period, never the line.
+      let graceTimer;
+      const speakerLabel = await Promise.race([
+        labeling,
+        new Promise((resolve) => { graceTimer = setTimeout(() => resolve(null), LABEL_GRACE_MS); })
+      ]);
+      clearTimeout(graceTimer);
       const raw = result && result.text ? String(result.text) : '';
       const text = this._sanitize(raw);
 
@@ -356,7 +372,7 @@ class TranscriptionStream extends EventEmitter {
 
       this.emit('utterance', {
         streamId: this.id,
-        label: this.label,
+        label: speakerLabel || this.label,
         text,
         startedAt,
         durationMs,

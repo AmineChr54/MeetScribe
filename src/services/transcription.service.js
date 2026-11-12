@@ -6,7 +6,9 @@ const { app } = require('electron');
 const TranscriptionStream = require('./transcription-stream');
 const whisperPool = require('./whisper-pool.service');
 const audioArchive = require('./audio-archive.service');
+const voiceService = require('./voice.service');
 const settingsStore = require('../core/settings.store');
+const threads = require('../core/threads');
 const logger = require('../core/logger').createServiceLogger('TRANSCRIPTION');
 
 // How far back to look when deciding whether a "You" line is really the
@@ -50,7 +52,8 @@ class TranscriptionService extends EventEmitter {
       language: settings.whisperLanguage,
       device: settings.whisperDevice,
       computeType: settings.whisperComputeType,
-      cpuThreads: settings.whisperCpuThreads,
+      cpuThreads: Number(settings.whisperCpuThreads) ||
+        threads.liveCpuThreads(require('os').availableParallelism(), settings.whisperWorkerCount),
       beamSize: settings.whisperBeamSize,
       // No glossary here. The small live model, handed a long hotword list with
       // every short utterance, reads the list out instead of the audio. Terms
@@ -84,6 +87,8 @@ class TranscriptionService extends EventEmitter {
         label,
         vad,
         language: settings.whisperLanguage,
+        // Only the mic gets speaker labels ("You" / "Other n"), and only when set up.
+        labeler: id === 'mic' ? (wavPath, ms) => voiceService.identify(wavPath, ms) : null,
         transcriber: {
           transcribe: (wavPath, meta) => whisperPool.transcribe(wavPath, meta)
         }
@@ -116,9 +121,24 @@ class TranscriptionService extends EventEmitter {
     };
   }
 
+  /** False when the user runs on the final pass alone. */
+  isLiveEnabled() {
+    return settingsStore.get('liveTranscription') !== false;
+  }
+
   start() {
     if (this.isRecording) return this.getStatus();
     this.configure();
+    voiceService.resetMeeting();
+
+    // With live off nothing here needs Whisper: the audio is only archived.
+    if (!this.isLiveEnabled()) {
+      this.recentSystemLines = [];
+      this.deferredStarts.clear();
+      this.isRecording = true;
+      this.emit('status', 'Recording · live transcript off');
+      return this.getStatus();
+    }
 
     if (!this.isAvailable()) {
       const message = 'Whisper is not set up. Open Settings → Transcription → Install / Repair Whisper.';
@@ -174,6 +194,7 @@ class TranscriptionService extends EventEmitter {
   ingest(streamId, buffer) {
     if (!this.isRecording) return;
     audioArchive.write(streamId, buffer);
+    if (!this.isLiveEnabled()) return;
     const stream = this.streams.get(streamId);
     if (stream) stream.ingest(buffer);
   }
@@ -181,7 +202,9 @@ class TranscriptionService extends EventEmitter {
   getStatus() {
     return {
       recording: this.isRecording,
-      available: this.isAvailable(),
+      // "Available" is about the live transcript; with it off there is nothing to warn about.
+      available: this.isAvailable() || !this.isLiveEnabled(),
+      liveEnabled: this.isLiveEnabled(),
       ...whisperPool.getStatus()
     };
   }
@@ -298,6 +321,8 @@ class TranscriptionService extends EventEmitter {
       python,
       script: this._resolveScriptPath('whisper_offline.py'),
       transcodeScript: this._resolveScriptPath('transcode_flac.py'),
+      convertScript: this._resolveScriptPath('convert_ct2.py'),
+      voiceScript: this._resolveScriptPath('voice_worker.py'),
       modelDir: this._resolveModelDir(),
       env: whisperPool.buildEnv(python)
     };
