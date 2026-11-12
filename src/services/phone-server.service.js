@@ -297,7 +297,7 @@ class PhoneServer extends EventEmitter {
     // Also when the cookie is already there (the code scanned again): the
     // token should not stay in the address bar or the history.
     if (verdict.setCookie || (req.method === 'GET' && url.searchParams.has('token'))) {
-      res.writeHead(302, { 'Set-Cookie': security.sessionCookie(this.token, { cookieName: COOKIE_NAME, secure: true }), Location: '/' });
+      res.writeHead(302, { 'Set-Cookie': security.sessionCookie(this.token, { cookieName: COOKIE_NAME, secure: true, sameSite: 'Lax' }), Location: '/' });
       return res.end();
     }
 

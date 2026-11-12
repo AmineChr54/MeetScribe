@@ -68,8 +68,13 @@ function checkRequest({ method, host, origin, cookieHeader, queryToken }, { port
   return { ok: false, status: 403, reason: 'token' };
 }
 
-function sessionCookie(token, { cookieName = COOKIE_NAME, secure = false } = {}) {
-  return `${cookieName}=${encodeURIComponent(token)}; HttpOnly;${secure ? ' Secure;' : ''} SameSite=Strict; Path=/`;
+/**
+ * `sameSite: 'Lax'` is for the phone: its link is opened from another app
+ * (the camera's QR scanner), which browsers treat as a cross-site navigation,
+ * so a Strict cookie set on the first redirect is not sent on the next request.
+ */
+function sessionCookie(token, { cookieName = COOKIE_NAME, secure = false, sameSite = 'Strict' } = {}) {
+  return `${cookieName}=${encodeURIComponent(token)}; HttpOnly;${secure ? ' Secure;' : ''} SameSite=${sameSite}; Path=/`;
 }
 
 /**

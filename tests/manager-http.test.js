@@ -50,6 +50,10 @@ test('the phone server checks its LAN host, an https Origin and its own cookie',
   assert.equal(http.checkRequest({ method: 'POST', host, origin: `http://${host}`, cookieHeader: phoneCookie }, lan).reason, 'origin');
   assert.equal(http.checkRequest({ method: 'POST', host, origin: `https://${host}`, cookieHeader: phoneCookie }, lan).ok, true);
   assert.match(http.sessionCookie(token, { cookieName: 'phone', secure: true }), /^phone=a+; HttpOnly; Secure; SameSite=Strict; Path=\/$/);
+  // Opened from the camera app (a cross-site navigation): Lax, or the cookie
+  // set on the first redirect is not sent on the next request.
+  assert.match(http.sessionCookie(token, { cookieName: 'phone', secure: true, sameSite: 'Lax' }), /; Secure; SameSite=Lax; Path=\/$/);
+  assert.match(http.sessionCookie(token), /SameSite=Strict/);
   assert.doesNotMatch(http.sessionCookie(token), /Secure/);
 });
 
