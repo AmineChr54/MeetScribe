@@ -43,6 +43,8 @@ const STATIC = {
   '/manager.js': { file: path.join(ROOT, 'src', 'ui', 'manager.js'), type: 'text/javascript; charset=utf-8' },
   '/manager.css': { file: path.join(ROOT, 'src', 'ui', 'manager.css'), type: 'text/css; charset=utf-8' },
   '/flags.js': { file: path.join(ROOT, 'src', 'ui', 'flags.js'), type: 'text/javascript; charset=utf-8' },
+  '/glossary-budget.js': { file: path.join(ROOT, 'src', 'core', 'glossary-budget.js'), type: 'text/javascript; charset=utf-8' },
+  '/meeting-summary-skill.md': { file: path.join(ROOT, 'src', 'ui', 'meeting-summary-skill.md'), type: 'text/markdown; charset=utf-8' },
   '/logo.svg': { file: path.join(ROOT, 'assets', 'brand', 'icon.svg'), type: 'image/svg+xml' }
 };
 

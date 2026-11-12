@@ -28,6 +28,12 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Library-only mode: the library's server without the overlay. Start it from the "Open MeetScribe Library" shortcut MeetScribe puts in the transcript folder, or with the power button in the Library's header, which closes MeetScribe and keeps the Library; the same button (or starting MeetScribe) brings it back. A green dot shows the Library is answering. The browser page is now called MeetScribe Library.
 - Profiles in the app's Settings are one line of small chips in their own Profiles tab.
 - Select meetings in the Library with Ctrl+click, Shift+click (a range), Ctrl+A or the select-all button; Escape clears the selection.
+- The glossary pickers (Settings and a meeting's Glossary tab) say how many terms will reach the model ("About 18 of 93 terms reach the model"), and the Glossaries page shows it for each list that is too long.
+
+### Changed
+
+- Several project glossaries in one meeting take turns in the final pass's short hotword list, one term from each in turn. Before, the first glossary picked could use up the whole list and the others were never used. A term that is in more than one of them is used once.
+- A Skill button at the bottom of the Library's sidebar copies a meeting-summary skill for Claude: a summary in sections, to-dos for you and for the others, and open questions, saved as Markdown where you choose.
 
 ### Fixed
 
@@ -37,6 +43,8 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
 - Pressing Enter in a library dialog (new folder, rename, tag) cancelled it instead of confirming.
 - The collapse arrows in Settings showed as "B8" / "BE".
+- Live transcription in the German profiles was mostly wrong words: they now use `small` live instead of the German tiny model. Live workers on auto threads use half the CPU's cores (4 to 8) instead of faster-whisper's fixed 4, so small keeps up. Pick the profile again to switch an existing setup.
+- Repetition loops ("so, so, so, …") in the fast final pass. Its batched decode never retried a looping segment, which happened most with a glossary. Looped segments are now decoded again one at a time without the glossary, and any loop left over is collapsed when the transcript is written.
 
 ## [1.4.0] - 2026-10-23
 

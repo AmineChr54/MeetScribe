@@ -46,13 +46,13 @@
     "node": ">=20"
   },
   "dependencies": {
-    "electron-updater": "^6.8.9",
+    "electron-updater": "^6.8.11",
     "winston": "^3.17.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
-    "electron": "^44.9.0",
-    "electron-builder": "^26.15.3"
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
   },
   "build": {
     "appId": "com.meetscribe.app",

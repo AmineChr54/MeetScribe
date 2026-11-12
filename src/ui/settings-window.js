@@ -351,11 +351,24 @@ class SettingsWindow {
   /** Project glossaries (made in the Library) as chips; ticked ones go into new meetings. */
   async loadGlossaries() {
     try {
-      this.glossaryNames = (await window.electronAPI.listGlossaries()).map((glossary) => glossary.name);
+      this.glossaryList = await window.electronAPI.listGlossaries();
     } catch (_) {
-      this.glossaryNames = [];
+      this.glossaryList = [];
     }
+    this.glossaryNames = this.glossaryList.map((glossary) => glossary.name);
     this.renderGlossarySet();
+  }
+
+  /** "About N of M terms reach the model" for the ticked glossaries. */
+  renderGlossaryFit() {
+    const line = document.getElementById('glossaryFit');
+    const budget = window.MeetScribeGlossaryBudget;
+    if (!line || !budget) return;
+    const chosen = new Set(((this.settings && this.settings.glossarySet) || []).map((name) => name.toLowerCase()));
+    const texts = (this.glossaryList || [])
+      .filter((glossary) => chosen.has(glossary.name.toLowerCase()))
+      .map((glossary) => glossary.text || '');
+    line.textContent = budget.describe(budget.forTexts(texts));
   }
 
   renderGlossarySet() {
@@ -377,9 +390,11 @@ class SettingsWindow {
           .map((item) => item.textContent);
         this.settings.glossarySet = set;
         this.save({ glossarySet: set });
+        this.renderGlossaryFit();
       });
       holder.appendChild(label);
     }
+    this.renderGlossaryFit();
   }
 
   readField(id) {

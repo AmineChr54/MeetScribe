@@ -47,6 +47,7 @@
           <button class="icon-btn labelled" id="phoneBtn" title="Record with your phone's microphone (scan a QR code)"><i data-icon="phone"></i><span>Phone</span></button>
           <button class="icon-btn labelled" id="storageBtn" title="Storage and cleanup"><i data-icon="drive"></i><span>Storage</span></button>
           <button class="icon-btn labelled" id="globalCorrectionsBtn" title="Corrections for all new meetings"><i data-icon="spell"></i><span>Fixes</span></button>
+          <button class="icon-btn labelled" id="copySkillBtn" title="Copy a meeting-summary skill to paste into Claude (summary, to-dos, open questions)"><i data-icon="copy"></i><span>Skill</span></button>
         </div>
         <input type="file" id="importFile" accept="audio/*,.mp3,.m4a,.wav,.flac,.ogg,.webm" hidden />
         <div id="totals" class="muted small"></div>
@@ -249,6 +250,7 @@
             <h3><i data-icon="book"></i>Project glossaries for this meeting</h3>
             <p class="muted small">Pick the projects this meeting was about. They replace the glossary below and apply the next time its final pass runs.</p>
             <div id="meetingGlossaryPicks" class="pick-chips"></div>
+            <p id="meetingGlossaryFit" class="muted small"></p>
             <div class="row-buttons">
               <button class="btn primary" id="glossaryApply"><i data-icon="check"></i>Use the ticked glossaries</button>
               <button class="btn" id="glossaryNone"><i data-icon="x"></i>No glossary</button>
@@ -326,6 +328,7 @@
   <div id="streams" hidden></div>
   <div id="toast" class="toast" hidden></div>
   <script src="/flags.js"></script>
+  <script src="/glossary-budget.js"></script>
   <script src="/manager.js"></script>
 </body>
 </html>
