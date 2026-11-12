@@ -62,10 +62,12 @@ const BUILTIN = [
     id: 'german',
     label: 'German',
     flag: 'de',
-    summary: 'German tiny live, German turbo final',
+    summary: 'small live, German turbo final',
     values: {
       ...BASE,
-      whisperModel: 'scheidti/whisper-tiny-german-1224-ct2',
+      // Not the German tiny fine-tune: against the final pass it got most
+      // words wrong, small gets about a third wrong and still keeps up live.
+      whisperModel: 'small',
       whisperLanguage: 'de',
       offlineModel: 'cstr/whisper-large-v3-turbo-german-int8_float32',
       folderNamePrefix: 'German'
@@ -78,7 +80,7 @@ const BUILTIN = [
     summary: 'German, with your own glossary',
     values: {
       ...BASE,
-      whisperModel: 'scheidti/whisper-tiny-german-1224-ct2',
+      whisperModel: 'small',
       whisperLanguage: 'de',
       offlineModel: 'cstr/whisper-large-v3-turbo-german-int8_float32',
       folderNamePrefix: 'Work'

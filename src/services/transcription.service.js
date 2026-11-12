@@ -8,6 +8,7 @@ const whisperPool = require('./whisper-pool.service');
 const audioArchive = require('./audio-archive.service');
 const voiceService = require('./voice.service');
 const settingsStore = require('../core/settings.store');
+const threads = require('../core/threads');
 const logger = require('../core/logger').createServiceLogger('TRANSCRIPTION');
 
 // How far back to look when deciding whether a "You" line is really the
@@ -51,7 +52,8 @@ class TranscriptionService extends EventEmitter {
       language: settings.whisperLanguage,
       device: settings.whisperDevice,
       computeType: settings.whisperComputeType,
-      cpuThreads: settings.whisperCpuThreads,
+      cpuThreads: Number(settings.whisperCpuThreads) ||
+        threads.liveCpuThreads(require('os').availableParallelism(), settings.whisperWorkerCount),
       beamSize: settings.whisperBeamSize,
       // No glossary here. The small live model, handed a long hotword list with
       // every short utterance, reads the list out instead of the audio. Terms

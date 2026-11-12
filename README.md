@@ -83,6 +83,8 @@ Every meeting gets its own folder under `Documents\MeetingTranscripts`:
 
 Click **Library** on the overlay to browse all of this in your browser: search every transcript, and click any line to hear it, with the two sides of the call kept in sync. The page is served by MeetScribe itself on `127.0.0.1`, only while it is open.
 
+In a room without your PC's mic in reach, click **Phone** in the Library and scan the QR code: your phone records in the browser, and when you stop, the recording comes back to the PC as a new meeting and goes through the final pass. It stays on your Wi-Fi (HTTPS with a certificate MeetScribe makes itself, so the phone asks you to accept it once), and the phone keeps the recording until the PC has it, so a dropped Wi-Fi only means sending it again from the same network.
+
 The live transcript is synced to disk line by line, so a crash costs seconds, not the meeting. Final passes queue up, survive a restart, and run below normal priority so your PC stays usable.
 
 ## Features

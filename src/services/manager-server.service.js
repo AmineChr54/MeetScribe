@@ -9,13 +9,13 @@ const library = require('../core/library');
 const settingsSchema = require('../core/settings-schema');
 const profiles = require('../core/profiles');
 const glossaries = require('../core/glossaries');
+const { receiveImport } = require('./import-upload');
 const logger = require('../core/logger').createServiceLogger('MANAGER');
 
 // The listener closes itself once no manager tab has been open for this long.
 const IDLE_SHUTDOWN_MS = 5 * 60 * 1000;
 const HEARTBEAT_MS = 25 * 1000;
 const MAX_BODY_BYTES = 1024 * 1024;
-const MAX_IMPORT_BYTES = 4 * 1024 * 1024 * 1024;
 
 // POST /api/<name>: body in, result out. Each one changes something on disk,
 // so every open tab is told to refresh afterwards.
@@ -44,6 +44,7 @@ const STATIC = {
   '/manager.css': { file: path.join(ROOT, 'src', 'ui', 'manager.css'), type: 'text/css; charset=utf-8' },
   '/flags.js': { file: path.join(ROOT, 'src', 'ui', 'flags.js'), type: 'text/javascript; charset=utf-8' },
   '/glossary-budget.js': { file: path.join(ROOT, 'src', 'core', 'glossary-budget.js'), type: 'text/javascript; charset=utf-8' },
+  '/meeting-summary-skill.md': { file: path.join(ROOT, 'src', 'ui', 'meeting-summary-skill.md'), type: 'text/markdown; charset=utf-8' },
   '/logo.svg': { file: path.join(ROOT, 'assets', 'brand', 'icon.svg'), type: 'image/svg+xml' }
 };
 
@@ -199,6 +200,7 @@ class ManagerServer extends EventEmitter {
     if (req.method === 'GET' && url.pathname === '/media') return this._media(req, res, url);
     if (req.method === 'GET' && url.pathname === '/api/export') return this._export(res, url);
     if (req.method === 'GET' && url.pathname === '/api/hub') return this._hub(res, url);
+    if (req.method === 'GET' && url.pathname === '/api/phone/qr.svg') return this._phoneQr(res);
     if (req.method === 'GET' && url.pathname.startsWith('/api/')) return this._get(res, url);
     if (req.method === 'POST' && url.pathname === '/api/import') return this._import(req, res, url);
     if (req.method === 'POST' && url.pathname.startsWith('/api/')) return this._post(req, res, url);
@@ -246,6 +248,8 @@ class ManagerServer extends EventEmitter {
           return this._json(res, 200, { ok: true, ...(this.api.profiles ? this.api.profiles() : { profiles: [] }) });
         case '/api/status':
           return this._json(res, 200, { ok: true, ...(this.api.status ? this.api.status() : {}) });
+        case '/api/phone':
+          return this._json(res, 200, { ok: true, ...(this.api.phoneStatus ? this.api.phoneStatus() : { running: false }) });
         default:
           return this._json(res, 404, { ok: false, error: 'Not found' });
       }
@@ -266,7 +270,8 @@ class ManagerServer extends EventEmitter {
     }
     try {
       const result = await action(body);
-      this.broadcast('library', { reason: name });
+      // The phone link reports its own changes as "phone" events.
+      if (!name.startsWith('phone/')) this.broadcast('library', { reason: name });
       return this._json(res, 200, { ok: true, ...result });
     } catch (error) {
       logger.info('Manager action refused', { action: name, error: error.message });
@@ -369,6 +374,11 @@ class ManagerServer extends EventEmitter {
         activate: body.activate === true
       }), (result) => ({ id: result.id })),
       'profiles/delete': (body) => this._unwrap(need('deleteProfile')(String(body.id || '')), () => ({})),
+      'phone/start': (body) => need('phoneStart')(body.address ? String(body.address) : null),
+      'phone/stop': () => {
+        need('phoneStop')();
+        return {};
+      },
       'app/open': () => need('openApp')(),
       'app/library-only': () => this._unwrap(need('libraryOnly')(), () => ({})),
       'models/download': (body) => {
@@ -404,6 +414,19 @@ class ManagerServer extends EventEmitter {
     }
   }
 
+  /** The phone recorder's link as a QR code (an image, so the page's CSP is untouched). */
+  _phoneQr(res) {
+    let svg;
+    try {
+      svg = this.api.phoneQr ? this.api.phoneQr() : null;
+    } catch (error) {
+      return this._json(res, 404, { ok: false, error: error.message });
+    }
+    if (!svg) return this._json(res, 404, { ok: false, error: 'Not available' });
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+    return res.end(svg);
+  }
+
   /** main.js answers { ok: false, error } instead of throwing; turn that into a refusal. */
   _unwrap(result, pick) {
     if (result && result.ok === false) throw new Error(result.error || 'Refused');
@@ -416,62 +439,20 @@ class ManagerServer extends EventEmitter {
    */
   async _import(req, res, url) {
     const query = url.searchParams;
-    const size = Number(req.headers['content-length']);
-    if (!Number.isFinite(size) || size <= 0) return this._json(res, 411, { ok: false, error: 'Empty upload' });
-    if (size > MAX_IMPORT_BYTES) return this._json(res, 413, { ok: false, error: 'The file is larger than 4 GB' });
-
-    let target;
-    try {
-      target = libraryEdit.beginImport({
-        name: query.get('name'),
-        startedAt: query.get('startedAt'),
-        folder: query.get('folder'),
-        ext: query.get('ext')
-      });
-    } catch (error) {
-      req.resume();
-      return this._json(res, 400, { ok: false, error: error.message });
-    }
-
-    const written = await new Promise((resolve) => {
-      const out = fs.createWriteStream(target.file);
-      let bytes = 0;
-      const fail = (error) => {
-        out.destroy();
-        resolve({ ok: false, error: error.message || String(error) });
-      };
-      req.on('data', (chunk) => {
-        bytes += chunk.length;
-        if (bytes > size) req.destroy(new Error('More data than announced'));
-      });
-      req.on('aborted', () => fail(new Error('The upload was interrupted')));
-      req.on('error', fail);
-      out.on('error', fail);
-      out.on('finish', () => resolve(bytes === size ? { ok: true } : { ok: false, error: 'The upload was incomplete' }));
-      req.pipe(out);
+    const result = await receiveImport(req, {
+      name: query.get('name'),
+      startedAt: query.get('startedAt'),
+      durationMs: query.get('durationMs'),
+      folder: query.get('folder'),
+      label: query.get('label'),
+      ext: query.get('ext')
     });
-    if (!written.ok) {
-      libraryEdit.failImport(target.dir);
-      if (!res.writableEnded && !res.destroyed) return this._json(res, 400, written);
-      return undefined;
-    }
-
-    try {
-      const result = libraryEdit.finishImport({
-        dir: target.dir,
-        file: target.file,
-        name: query.get('name'),
-        startedAt: query.get('startedAt'),
-        durationMs: query.get('durationMs'),
-        label: query.get('label')
-      });
-      if (query.get('transcribe') === '1' && this.api.rerun) this.api.rerun(target.dir, {});
+    if (result.body.ok) {
+      if (query.get('transcribe') === '1' && this.api.rerun) this.api.rerun(result.dir, {});
       this.broadcast('library', { reason: 'import' });
-      return this._json(res, 200, { ok: true, ...result });
-    } catch (error) {
-      libraryEdit.failImport(target.dir);
-      return this._json(res, 400, { ok: false, error: error.message });
     }
+    if (res.writableEnded || res.destroyed) return undefined;
+    return this._json(res, result.status, result.body);
   }
 
   _readBody(req) {
