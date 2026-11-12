@@ -4,6 +4,8 @@ All notable changes to this project are documented here. Format based on [Keep a
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-11-12
+
 ### Added
 
 - Unit tests for the hallucination filter, transcript reordering and echo suppression (`npm test`, run in CI).
@@ -27,11 +29,11 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Profiles in the app's Settings are one line of small chips in their own Profiles tab.
 - Select meetings in the Library with Ctrl+click, Shift+click (a range), Ctrl+A or the select-all button; Escape clears the selection.
 - The glossary pickers (Settings and a meeting's Glossary tab) say how many terms will reach the model ("About 18 of 93 terms reach the model"), and the Glossaries page shows it for each list that is too long.
+- A Skill button at the bottom of the Library's sidebar copies a meeting-summary skill for Claude: a summary in sections, to-dos for you and for the others, and open questions, saved as Markdown where you choose.
 
 ### Changed
 
 - Several project glossaries in one meeting take turns in the final pass's short hotword list, one term from each in turn. Before, the first glossary picked could use up the whole list and the others were never used. A term that is in more than one of them is used once.
-- A Skill button at the bottom of the Library's sidebar copies a meeting-summary skill for Claude: a summary in sections, to-dos for you and for the others, and open questions, saved as Markdown where you choose.
 
 ### Fixed
 
