@@ -41,29 +41,40 @@ function parseCookies(header) {
   return out;
 }
 
-function hostAllowed(host, port) {
-  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost'];
+
+/** `hosts` are bare names or addresses; the port is added here. */
+function hostAllowed(host, port, hosts = LOOPBACK_HOSTS) {
+  return hosts.some((name) => host === `${name}:${port}`);
 }
 
-function originAllowed(origin, port) {
-  return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
+function originAllowed(origin, port, hosts = LOOPBACK_HOSTS, scheme = 'http') {
+  return hosts.some((name) => origin === `${scheme}://${name}:${port}`);
 }
 
 /**
  * Decide what to do with a request.
+ *
+ * The defaults are the manager's (loopback, http, its own cookie). The phone
+ * server passes its LAN addresses, `scheme: 'https'` and its own cookie name.
  * @returns {{ ok: true }|{ ok: false, status: number, reason: string }|{ ok: true, setCookie: true }}
  */
-function checkRequest({ method, host, origin, cookieHeader, queryToken }, { port, token }) {
-  if (!hostAllowed(host, port)) return { ok: false, status: 403, reason: 'host' };
+function checkRequest({ method, host, origin, cookieHeader, queryToken }, { port, token, hosts, scheme, cookieName = COOKIE_NAME }) {
+  if (!hostAllowed(host, port, hosts)) return { ok: false, status: 403, reason: 'host' };
   const mutating = !['GET', 'HEAD'].includes(String(method || 'GET').toUpperCase());
-  if (mutating && !originAllowed(origin, port)) return { ok: false, status: 403, reason: 'origin' };
-  if (sameSecret(parseCookies(cookieHeader)[COOKIE_NAME], token)) return { ok: true };
+  if (mutating && !originAllowed(origin, port, hosts, scheme)) return { ok: false, status: 403, reason: 'origin' };
+  if (sameSecret(parseCookies(cookieHeader)[cookieName], token)) return { ok: true };
   if (!mutating && queryToken && sameSecret(queryToken, token)) return { ok: true, setCookie: true };
   return { ok: false, status: 403, reason: 'token' };
 }
 
-function sessionCookie(token) {
-  return `${COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`;
+/**
+ * `sameSite: 'Lax'` is for the phone: its link is opened from another app
+ * (the camera's QR scanner), which browsers treat as a cross-site navigation,
+ * so a Strict cookie set on the first redirect is not sent on the next request.
+ */
+function sessionCookie(token, { cookieName = COOKIE_NAME, secure = false, sameSite = 'Strict' } = {}) {
+  return `${cookieName}=${encodeURIComponent(token)}; HttpOnly;${secure ? ' Secure;' : ''} SameSite=${sameSite}; Path=/`;
 }
 
 /**

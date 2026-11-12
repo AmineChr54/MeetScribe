@@ -81,6 +81,7 @@
   // 24×24 stroke paths drawn for this page. `filled` ones are solid shapes.
 
   const ICONS = {
+    phone: 'M8 2.5h8a1.5 1.5 0 0 1 1.5 1.5v16a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 20V4A1.5 1.5 0 0 1 8 2.5zM11 18h2',
     plus: 'M12 5v14M5 12h14',
     x: 'M6 6l12 12M18 6L6 18',
     square: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z',
@@ -1567,6 +1568,17 @@
     }
   }
 
+  async function copySummarySkill() {
+    try {
+      const response = await fetch('/meeting-summary-skill.md', { credentials: 'same-origin' });
+      if (!response.ok) return toast('Could not load the skill');
+      await navigator.clipboard.writeText(await response.text());
+      toast('Copied the meeting-summary skill. Save it as SKILL.md in a skills folder.');
+    } catch (_) {
+      toast('Could not copy the skill');
+    }
+  }
+
   function exportMeeting(format) {
     if (!format) return;
     const markup = $('showMarkup').checked ? '1' : '0';
@@ -2400,6 +2412,95 @@
       }
       if (data.state === 'starting' || data.state === 'queued') refreshSoon();
     });
+    source.addEventListener('phone', (event) => {
+      try { renderPhone(JSON.parse(event.data)); } catch (_) { /* malformed */ }
+    });
+  }
+
+  // ── Phone recorder ──
+  //
+  // The phone link is a second, LAN-facing server in the app
+  // (src/services/phone-server.service.js). This dialog starts it, shows its
+  // QR code and follows the phone through "phone" events.
+
+  state.phone = { running: false };
+  let phoneTicker = null;
+
+  async function openPhone() {
+    const button = $('phoneBtn');
+    if (button.disabled) return;
+    button.disabled = true;
+    const status = await attempt(() => post('/api/phone/start', {}), 'Could not start the phone link');
+    button.disabled = false;
+    if (!status) return;
+    const dialog = $('phoneDialog');
+    if (!dialog.open) dialog.showModal();
+    renderPhone(status);
+    clearInterval(phoneTicker);
+    // The phone reports every 20 s; count the seconds in between here.
+    phoneTicker = setInterval(() => renderPhone(state.phone), 1000);
+  }
+
+  function phoneLine(status) {
+    if (!status.running) return { kind: 'off', text: 'The phone link is off.' };
+    if (status.upload) return { kind: 'receiving', text: `Receiving the recording… ${Math.round(status.upload.pct * 100)}%` };
+    const phone = status.phone;
+    const fresh = phone && Date.now() - phone.seenAt < 60 * 1000;
+    if (fresh && phone.state === 'recording') {
+      return { kind: 'recording', text: `Phone is recording · ${fmtClock(phone.elapsedMs + (Date.now() - phone.seenAt))}` };
+    }
+    if (fresh && phone.state === 'paused') return { kind: 'connected', text: `Phone paused at ${fmtClock(phone.elapsedMs)}` };
+    if (fresh && phone.state === 'uploading') return { kind: 'receiving', text: 'Phone is sending the recording…' };
+    if (fresh && phone.state === 'unsent') return { kind: 'connected', text: 'The phone has a recording that is not sent yet.' };
+    if (status.received) return { kind: 'received', text: `Received: ${status.received.name}` };
+    if (fresh) return { kind: 'connected', text: 'Phone connected. Tap record on the phone.' };
+    if (phone) return { kind: 'waiting', text: 'The phone has not checked in for a minute. Is the page still open?' };
+    return { kind: 'waiting', text: 'Waiting for the phone to open the link…' };
+  }
+
+  function renderPhone(status) {
+    const previous = state.phone || {};
+    state.phone = status || { running: false };
+    $('phoneBtn').classList.toggle('live', Boolean(state.phone.running));
+
+    const received = state.phone.received;
+    // Only news while this tab watched, not one from before it was opened.
+    if (received && previous.running && (!previous.received || previous.received.at !== received.at)) {
+      toast('Phone recording received');
+      loadQueue();
+    }
+    if (!$('phoneDialog').open) return;
+
+    const line = phoneLine(state.phone);
+    $('phoneStatus').dataset.state = line.kind;
+    $('phoneStatusText').textContent = line.text;
+    $('phoneOpenMeeting').hidden = !(received && received.id);
+    $('phoneStop').hidden = !state.phone.running;
+
+    const qr = $('phoneQr');
+    if (!state.phone.running) {
+      qr.removeAttribute('src');
+      $('phoneUrl').textContent = '';
+      $('phoneAddressRow').hidden = true;
+      return;
+    }
+    if (state.phone.url !== previous.url || !qr.getAttribute('src')) {
+      qr.src = '/api/phone/qr.svg?at=' + Date.now();
+      $('phoneUrl').textContent = state.phone.url;
+    }
+    const addresses = state.phone.addresses || [];
+    $('phoneAddressRow').hidden = addresses.length < 2;
+    const select = $('phoneAddress');
+    if (select.options.length !== addresses.length || [...select.options].some((option, i) => option.value !== addresses[i])) {
+      select.replaceChildren(...addresses.map((address) => el('option', { value: address, text: address })));
+    }
+    select.value = state.phone.address || '';
+  }
+
+  function closePhone() {
+    clearInterval(phoneTicker);
+    phoneTicker = null;
+    if ($('phoneDialog').open) $('phoneDialog').close();
   }
 
   // ── Wiring ──
@@ -2419,6 +2520,29 @@
     $('copyLlmBtn').addEventListener('click', copyForLlm);
     $('rerunBtn').addEventListener('click', () => bulk('rerun', [state.meeting.id]));
     $('importBtn').addEventListener('click', () => $('importFile').click());
+    $('phoneBtn').addEventListener('click', openPhone);
+    $('phoneClose').addEventListener('click', closePhone);
+    $('phoneDialog').addEventListener('close', () => {
+      clearInterval(phoneTicker);
+      phoneTicker = null;
+    });
+    $('phoneStop').addEventListener('click', async () => {
+      if (state.phone.phone && state.phone.phone.state === 'recording' &&
+        !window.confirm('The phone is recording. Turn the link off anyway? The phone keeps the recording and can send it later.')) return;
+      await attempt(() => post('/api/phone/stop', {}), 'Could not turn the phone link off');
+      closePhone();
+    });
+    $('phoneAddress').addEventListener('change', async (event) => {
+      const status = await attempt(() => post('/api/phone/start', { address: event.target.value }), 'Could not switch the network');
+      if (status) renderPhone(status);
+    });
+    $('phoneOpenMeeting').addEventListener('click', async () => {
+      const id = state.phone.received && state.phone.received.id;
+      closePhone();
+      if (!id) return;
+      await loadLibrary();
+      if (byId(id)) openMeeting(id);
+    });
     $('importFile').addEventListener('change', (event) => {
       const file = event.target.files[0];
       event.target.value = '';
@@ -2475,6 +2599,7 @@
       $('correctionsSaved').textContent = 'Saved.';
     });
     $('globalCorrectionsBtn').addEventListener('click', globalCorrections);
+    $('copySkillBtn').addEventListener('click', copySummarySkill);
     document.querySelectorAll('.page-link').forEach((link) => link.addEventListener('click', () => showPage(link.dataset.page)));
     $('settingsSave').addEventListener('click', saveSettings);
     $('settingsForm').addEventListener('submit', (event) => {
@@ -2618,6 +2743,8 @@
     connectEvents();
     loadStatus();
     loadQueue();
+    // A phone link left on from an earlier tab: show it on the button.
+    attempt(() => api('/api/phone')).then((status) => { if (status) renderPhone(status); });
     const id = decodeURIComponent(location.hash.slice(1));
     if (id && byId(id)) openMeeting(id);
   }
