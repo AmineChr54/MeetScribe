@@ -36,6 +36,7 @@ All notable changes to this project are documented here. Format based on [Keep a
 - Starting a meeting with the live transcript off now warns when no final pass can run, instead of silently keeping only the audio.
 - Pressing Enter in a library dialog (new folder, rename, tag) cancelled it instead of confirming.
 - The collapse arrows in Settings showed as "B8" / "BE".
+- Live transcription in the German profiles was mostly wrong words: they now use `small` live instead of the German tiny model. Live workers on auto threads use half the CPU's cores (4 to 8) instead of faster-whisper's fixed 4, so small keeps up. Pick the profile again to switch an existing setup.
 - Repetition loops ("so, so, so, …") in the fast final pass. Its batched decode never retried a looping segment, which happened most with a glossary. Looped segments are now decoded again one at a time without the glossary, and any loop left over is collapsed when the transcript is written.
 
 ## [1.4.0] - 2026-10-23
